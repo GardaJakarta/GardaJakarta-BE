@@ -1,72 +1,90 @@
+import { betterAuth } from "better-auth";
+import { prismaAdapter } from "better-auth/adapters/prisma";
+import { hashPassword, verifyPassword } from "better-auth/crypto";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
-import { z } from "zod";
 import { prisma } from "./prisma.js";
 
-export const authPortals = ["warga", "polisi", "admin"] as const;
-export type AuthPortal = (typeof authPortals)[number];
+const production = process.env.NODE_ENV === "production";
+const apiUrl = process.env.BETTER_AUTH_URL || (production ? "https://api.gardajakarta.my.id" : "http://localhost:4000");
+const origins = (process.env.CORS_ORIGIN || "http://localhost:5173")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
-const authInput = z.object({
-  email: z.string().email(),
-  password: z.string().min(8).max(128),
+if (!process.env.BETTER_AUTH_SECRET && production) {
+  throw new Error("BETTER_AUTH_SECRET must be configured in production.");
+}
+
+export const auth = betterAuth({
+  database: prismaAdapter(prisma, { provider: "postgresql", transaction: true }),
+  baseURL: apiUrl,
+  basePath: "/api/auth",
+  secret: process.env.BETTER_AUTH_SECRET,
+  trustedOrigins: origins,
+  user: {
+    additionalFields: {
+      role: {
+        type: "string",
+        required: false,
+        defaultValue: "WARGA",
+        input: false,
+      },
+    },
+  },
+  emailAndPassword: {
+    enabled: true,
+    minPasswordLength: 8,
+    maxPasswordLength: 128,
+    autoSignIn: true,
+    password: {
+      hash: hashPassword,
+      // Keep passwords migrated from the original bcrypt implementation valid.
+      verify: async ({ hash, password }) => hash.startsWith("$2")
+        ? Buffer.byteLength(password, "utf8") <= 72 && await bcrypt.compare(password, hash)
+        : verifyPassword({ hash, password }),
+    },
+  },
+  socialProviders: {
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID || "",
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+      redirectURI: `${apiUrl}/api/auth/callback/google`,
+      requireEmailVerification: true,
+      disableIdTokenSignIn: true,
+    },
+  },
+  account: {
+    accountLinking: {
+      enabled: true,
+      trustedProviders: ["google"],
+      requireLocalEmailVerified: true,
+      allowDifferentEmails: false,
+    },
+    encryptOAuthTokens: true,
+    storeStateStrategy: "database",
+  },
+  advanced: {
+    ipAddress: { ipAddressHeaders: ["x-garda-client-ip"] },
+    useSecureCookies: production,
+    disableCSRFCheck: false,
+    disableOriginCheck: false,
+    cookiePrefix: "garda",
+  },
+  session: { cookieCache: { enabled: false } },
+  rateLimit: {
+    enabled: true,
+    customRules: {
+      "/sign-in/email": { window: 900, max: 20 },
+      "/sign-up/email": { window: 900, max: 20 },
+      "/sign-in/social": { window: 900, max: 20 },
+    },
+  },
 });
 
-const registerInput = authInput.extend({ name: z.string().trim().min(2).max(80) });
-const loginInput = authInput.extend({ portal: z.enum(authPortals).default("warga") });
+export type AuthSession = typeof auth.$Infer.Session;
 
-function toUser(user: { id: string; name: string; email: string; role: string }) {
-  return { id: user.id, name: user.name, email: user.email, role: user.role.toLowerCase() };
-}
-
-function roleForPortal(portal: AuthPortal) {
-  return portal === "polisi" ? "POLISI" : portal === "admin" ? "ADMIN" : "WARGA";
-}
-
-function signToken(userId: string) {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) throw new Error("JWT_SECRET is not configured");
-  return jwt.sign({ sub: userId }, secret, { expiresIn: "7d" });
-}
-
-export async function registerUser(input: unknown) {
-  const data = registerInput.parse(input);
-  const email = data.email.toLowerCase();
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) throw new Error("Email sudah terdaftar.");
-
-  const passwordHash = await bcrypt.hash(data.password, 12);
-  const user = await prisma.user.create({
-    data: { name: data.name, email, passwordHash },
-    select: { id: true, name: true, email: true, role: true },
-  });
-  return { user: toUser(user), token: signToken(user.id) };
-}
-
-export async function loginUser(input: unknown) {
-  const data = loginInput.parse(input);
-  const email = data.email.toLowerCase();
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user || !(await bcrypt.compare(data.password, user.passwordHash))) {
-    throw new Error("Email atau password tidak cocok.");
-  }
-  if (user.role !== roleForPortal(data.portal)) {
-    throw new Error("Akun ini tidak terdaftar untuk portal tersebut.");
-  }
-  return { user: toUser(user), token: signToken(user.id) };
-}
-
-export async function getUser(userId: string) {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, name: true, email: true, role: true } });
-  return user ? toUser(user) : null;
-}
-
-export function getTokenUserId(authorization?: string) {
-  const secret = process.env.JWT_SECRET;
-  if (!secret || !authorization?.startsWith("Bearer ")) return null;
-  try {
-    const payload = jwt.verify(authorization.slice(7), secret);
-    return typeof payload === "object" && typeof payload.sub === "string" ? payload.sub : null;
-  } catch {
-    return null;
-  }
+export function normalizeRole(role: unknown): "warga" | "polisi" | "admin" {
+  if (role === "POLISI" || role === "polisi") return "polisi";
+  if (role === "ADMIN" || role === "admin") return "admin";
+  return "warga";
 }

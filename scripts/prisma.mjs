@@ -1,18 +1,13 @@
 import { spawnSync } from "node:child_process";
-import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { config } from "dotenv";
 
-const prismaCommand = process.platform === "win32"
-  ? path.resolve("node_modules/.bin/prisma.cmd")
-  : path.resolve("node_modules/.bin/prisma");
+config({ quiet: true });
+const prismaCommand = fileURLToPath(new URL("../node_modules/prisma/build/index.js", import.meta.url));
 const env = { ...process.env };
 
-// Prisma now targets PostgreSQL in every environment. The fallback only lets
-// `prisma generate` and `prisma validate` run before a local database exists.
-if (!env.DATABASE_URL) env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/gardajakarta?schema=public";
-
-const result = spawnSync(prismaCommand, process.argv.slice(2), {
+const result = spawnSync(process.execPath, [prismaCommand, ...process.argv.slice(2)], {
   env,
-  shell: process.platform === "win32",
   stdio: "inherit",
 });
 
