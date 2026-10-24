@@ -1,0 +1,43 @@
+{
+  "name": "gardajakarta-be",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": { "node": ">=22.12.0" },
+  "scripts": {
+    "dev": "tsx watch --env-file=.env src/server.ts",
+    "build": "node scripts/prisma.mjs generate && tsc -p tsconfig.json",
+    "start": "npm run prisma:migrate:deploy && node dist/server.js",
+    "typecheck": "node scripts/prisma.mjs generate && tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "prisma:generate": "node scripts/prisma.mjs generate",
+    "prisma:validate": "node scripts/prisma.mjs validate",
+    "prisma:migrate:dev": "node scripts/prisma.mjs migrate dev --name init",
+    "prisma:migrate:deploy": "node scripts/prisma.mjs migrate deploy",
+    "prisma:studio": "node scripts/prisma.mjs studio"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "@prisma/client": "^6.19.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.5",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^24.10.0",
+    "eslint": "^9.39.1",
+    "globals": "^16.5.0",
+    "prisma": "^6.19.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.3"
+  }
+}
