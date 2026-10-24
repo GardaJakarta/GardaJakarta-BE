@@ -94,6 +94,8 @@ Service `GardaJakarta-BE` memakai branch `main` dari repository ini.
 
 Domain API: `api.gardajakarta.my.id`. Railway menjalankan `prisma migrate deploy` sebelum server start.
 
+Konfigurasi service tersimpan di Railway: build `npm run build`, start `npm start`, health check `/api/health` (timeout 120 detik), region `asia-southeast1-eqsg3a`, dan 1 replica. Deploy otomatis mengikuti GitHub `main`. Railway tidak menerima `railway.json` untuk service baru; konfigurasi ini dikelola melalui dashboard/API.
+
 Kedua service aplikasi dibatasi 1 vCPU dan 1 GB RAM. DNS yang diperlukan:
 
 | Tipe | Host | Target |
