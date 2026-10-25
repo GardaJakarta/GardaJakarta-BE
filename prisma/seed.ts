@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { randomBytes, randomUUID } from "node:crypto";
 import { hashPassword } from "better-auth/crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
@@ -33,6 +34,15 @@ async function main() {
     });
   }
 
+  const credentialPath = "secrets/gardajakarta-seed-credentials.txt";
+  const previousCredentials = new Map<string, string>();
+  try {
+    const previous = await readFile(credentialPath, "utf8");
+    for (const line of previous.split("\n")) {
+      const parts = line.split(" | ");
+      if (parts.length === 4 && parts[2]?.includes("@")) previousCredentials.set(parts[2], line);
+    }
+  } catch { /* First seed run has no credential note yet. */ }
   const credentials: string[] = [
     "Garda Jakarta seeded operational accounts",
     `Generated: ${new Date().toISOString()}`,
@@ -53,7 +63,7 @@ async function main() {
       await prisma.account.create({ data: { id: randomUUID(), accountId: user.id, providerId: "credential", userId: user.id, password: await hashPassword(password) } });
       credentials.push(`POLISI | ${user.name} | ${email} | ${password}`);
     } else {
-      credentials.push(`POLISI | ${user.name} | ${email} | EXISTING_PASSWORD_NOT_REGENERATED`);
+      credentials.push(previousCredentials.get(email) || `POLISI | ${user.name} | ${email} | EXISTING_PASSWORD_NOT_REGENERATED`);
     }
   }
 
@@ -67,14 +77,30 @@ async function main() {
     await prisma.account.create({ data: { id: randomUUID(), accountId: admin.id, providerId: "credential", userId: admin.id, password: await hashPassword(adminPassword) } });
     credentials.push(`ADMIN | ${admin.name} | ${adminEmail} | ${adminPassword}`);
   } else {
-    credentials.push(`ADMIN | ${admin.name} | ${adminEmail} | EXISTING_PASSWORD_NOT_REGENERATED`);
+    credentials.push(previousCredentials.get(adminEmail) || `ADMIN | ${admin.name} | ${adminEmail} | EXISTING_PASSWORD_NOT_REGENERATED`);
   }
 
-  const { mkdir, writeFile } = await import("node:fs/promises");
+  const demoUser = await prisma.user.upsert({
+    where: { email: "demo.warga@gardajakarta.my.id" },
+    update: { name: "Demo Warga (Data Simulasi)", role: "WARGA", emailVerified: true },
+    create: { id: "seed-demo-warga", name: "Demo Warga (Data Simulasi)", email: "demo.warga@gardajakarta.my.id", role: "WARGA", emailVerified: true },
+  });
+  const demoReports = [
+    ["seed-report-1", "GJ-DEMO-0001", "Penerangan jalan", "Lampu jalan mati di sekitar jalur pedestrian.", "P2", "VERIFIED", -6.1944, 106.8229, "polsek-menteng"],
+    ["seed-report-2", "GJ-DEMO-0002", "Gangguan keamanan", "Terlihat kerumunan mencurigakan di dekat area parkir.", "P1", "IN_PROGRESS", -6.2078, 106.8114, "polsek-tanah-abang"],
+    ["seed-report-3", "GJ-DEMO-0003", "Fasilitas umum", "Pagar pembatas trotoar rusak dan perlu diperbaiki.", "P3", "PENDING", -6.2426, 106.7974, "polres-jakarta-selatan"],
+  ] as const;
+  for (const [id, ticketNumber, category, description, severity, status, latitude, longitude, policeUnitId] of demoReports) {
+    await prisma.incidentReport.upsert({
+      where: { id },
+      update: { ticketNumber, category, description, severity, status, latitude, longitude, policeUnitId, reporterId: demoUser.id },
+      create: { id, ticketNumber, category, description, severity, status, latitude, longitude, policeUnitId, reporterId: demoUser.id },
+    });
+  }
+
   await mkdir("secrets", { recursive: true });
-  const credentialPath = "secrets/gardajakarta-seed-credentials.txt";
   await writeFile(credentialPath, `${credentials.join("\n")}\n`, { encoding: "utf8", flag: "w" });
-  console.log(`Seeded ${policeUnits.length} Jakarta police units and ${policeUnits.length + 1} operational accounts.`);
+  console.log(`Seeded ${policeUnits.length} Jakarta police units, ${policeUnits.length + 1} operational accounts, and ${demoReports.length} public demo reports.`);
   console.log(`Credentials written to ${credentialPath}`);
 }
 
