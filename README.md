@@ -94,6 +94,12 @@ Service `GardaJakarta-BE` memakai branch `main` dari repository ini.
 | `BETTER_AUTH_SECRET` | Secret acak minimal 32 byte |
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
+| `S3_ENDPOINT_URL` | S3-compatible storage endpoint |
+| `S3_REGION` | `auto` for S3-compatible storage unless the provider says otherwise |
+| `S3_BUCKET_NAME` | Bucket for report evidence and published police-unit images |
+| `S3_ACCESS_KEY_ID` | Storage access key |
+| `S3_SECRET_ACCESS_KEY` | Storage secret key |
+| `S3_PUBLIC_BASE_URL` | Public base URL for published police-unit images |
 | `CORS_ORIGIN` | `https://app.gardajakarta.my.id https://gardajakarta.my.id http://localhost:5173 http://127.0.0.1:5173 http://localhost:3000 http://127.0.0.1:3000` |
 | `NODE_ENV` | `production` |
 

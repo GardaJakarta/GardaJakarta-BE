@@ -13,6 +13,21 @@ enum UserRole {
   ADMIN
 }
 
+enum ReportSeverity {
+  P0
+  P1
+  P2
+  P3
+}
+
+enum ReportStatus {
+  PENDING
+  VERIFIED
+  IN_PROGRESS
+  RESOLVED
+  REJECTED
+}
+
 model User {
   id            String    @id
   name          String
@@ -25,6 +40,49 @@ model User {
   updatedAt     DateTime  @updatedAt
   sessions      Session[]
   accounts      Account[]
+  reports       IncidentReport[]
+  policeUnitId  String?
+  policeUnit    PoliceUnit? @relation(fields: [policeUnitId], references: [id], onDelete: SetNull)
+}
+
+model PoliceUnit {
+  id            String           @id
+  name          String
+  district      String
+  address       String
+  phone         String?
+  latitude      Decimal          @db.Decimal(9, 6)
+  longitude     Decimal          @db.Decimal(9, 6)
+  photoUrl      String?
+  isPublished   Boolean          @default(true)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  reports       IncidentReport[]
+  staff         User[]
+
+  @@index([district])
+  @@index([isPublished])
+}
+
+model IncidentReport {
+  id            String         @id @default(cuid())
+  ticketNumber  String         @unique
+  category      String
+  description   String
+  severity      ReportSeverity  @default(P2)
+  status        ReportStatus    @default(PENDING)
+  latitude      Decimal        @db.Decimal(9, 6)
+  longitude     Decimal        @db.Decimal(9, 6)
+  reporterId    String
+  reporter      User           @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  policeUnitId  String?
+  policeUnit    PoliceUnit?    @relation(fields: [policeUnitId], references: [id], onDelete: SetNull)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([reporterId, createdAt])
+  @@index([policeUnitId, status])
+  @@index([status, createdAt])
 }
 
 model Session {

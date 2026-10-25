@@ -14,6 +14,7 @@
     "lint": "eslint .",
     "test:integration": "npm run build && node --test tests/auth.integration.mjs",
     "staff:create": "node scripts/create-staff.mjs",
+    "db:seed": "tsx prisma/seed.ts",
     "prisma:generate": "node scripts/prisma.mjs generate",
     "prisma:validate": "node scripts/prisma.mjs validate",
     "prisma:migrate:dev": "node scripts/prisma.mjs migrate dev --name init",
@@ -21,6 +22,7 @@
     "prisma:studio": "node scripts/prisma.mjs studio"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1156.0",
     "@prisma/client": "^6.19.0",
     "bcryptjs": "^3.0.2",
     "better-auth": "^1.7.12",
