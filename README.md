@@ -89,7 +89,7 @@ Service `GardaJakarta-BE` memakai branch `main` dari repository ini.
 | `BETTER_AUTH_SECRET` | Secret acak minimal 32 byte |
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
-| `CORS_ORIGIN` | `https://app.gardajakarta.my.id` |
+| `CORS_ORIGIN` | `https://app.gardajakarta.my.id https://gardajakarta.my.id http://localhost:5173 http://127.0.0.1:5173` |
 | `NODE_ENV` | `production` |
 
 Domain API: `api.gardajakarta.my.id`. Railway menjalankan `prisma migrate deploy` sebelum server start.
