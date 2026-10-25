@@ -105,12 +105,13 @@ async function main() {
     update: { name: "Demo Warga (Data Simulasi)", role: "WARGA", emailVerified: true },
     create: { id: "seed-demo-warga", name: "Demo Warga (Data Simulasi)", email: "demo.warga@gardajakarta.my.id", role: "WARGA", emailVerified: true },
   });
-  const demoReports = [
-    ["seed-report-1", "GJ-DEMO-0001", "Penerangan jalan", "Lampu jalan mati di sekitar jalur pedestrian.", "P2", "VERIFIED", -6.1944, 106.8229, "polsek-menteng"],
-    ["seed-report-2", "GJ-DEMO-0002", "Gangguan keamanan", "Terlihat kerumunan mencurigakan di dekat area parkir.", "P1", "IN_PROGRESS", -6.2078, 106.8114, "polsek-tanah-abang"],
-    ["seed-report-3", "GJ-DEMO-0003", "Fasilitas umum", "Pagar pembatas trotoar rusak dan perlu diperbaiki.", "P3", "PENDING", -6.2426, 106.7974, "polres-jakarta-selatan"],
+  const seedDay = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+  const seededReports = [
+    ["seed-report-1", `GJ-${seedDay}-0001`, "Gangguan penerangan atau fasilitas yang berdampak pada keamanan", "Lampu jalan mati di sekitar jalur pedestrian.", "P2", "VERIFIED", -6.1944, 106.8229, "polsek-menteng"],
+    ["seed-report-2", `GJ-${seedDay}-0002`, "Tawuran atau kerumunan berbahaya", "Terlihat kerumunan mencurigakan di dekat area parkir.", "P1", "IN_PROGRESS", -6.2078, 106.8114, "polsek-tanah-abang"],
+    ["seed-report-3", `GJ-${seedDay}-0003`, "Gangguan penerangan atau fasilitas yang berdampak pada keamanan", "Penerangan area publik perlu diperiksa karena mengganggu keamanan malam hari.", "P3", "PENDING", -6.2426, 106.7974, "polres-jakarta-selatan"],
   ] as const;
-  for (const [id, ticketNumber, category, description, severity, status, latitude, longitude, policeUnitId] of demoReports) {
+  for (const [id, ticketNumber, category, description, severity, status, latitude, longitude, policeUnitId] of seededReports) {
     await prisma.incidentReport.upsert({
       where: { id },
       update: { ticketNumber, category, description, severity, status, latitude, longitude, policeUnitId, reporterId: demoUser.id },
@@ -120,7 +121,7 @@ async function main() {
 
   await mkdir("secrets", { recursive: true });
   await writeFile(credentialPath, `${credentials.join("\n")}\n`, { encoding: "utf8", flag: "w" });
-  console.log(`Seeded ${policeUnits.length} Jakarta police units, ${policeUnits.length + 1} operational accounts, and ${demoReports.length} public demo reports.`);
+  console.log(`Seeded ${policeUnits.length} Jakarta police units, ${policeUnits.length + 1} operational accounts, and ${seededReports.length} public seeded reports.`);
   console.log(`Credentials written to ${credentialPath}`);
 }
 
