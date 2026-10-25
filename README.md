@@ -48,12 +48,17 @@ API lokal berjalan di `http://localhost:4000`.
 Tambahkan origin berikut pada Google OAuth client:
 
 - `https://app.gardajakarta.my.id`
+- `https://gardajakarta.my.id`
 - `http://localhost:5173`
+- `http://127.0.0.1:5173`
+- `http://localhost:3000`
+- `http://127.0.0.1:3000`
 
 Tambahkan redirect URI berikut persis:
 
 - `https://api.gardajakarta.my.id/api/auth/callback/google`
 - `http://localhost:4000/api/auth/callback/google`
+- `http://127.0.0.1:4000/api/auth/callback/google`
 
 Pakai tipe Web application. Selama OAuth consent screen masih Testing, tambahkan akun penguji sebagai Test users. Untuk pemakaian publik, selesaikan consent screen dan publish sesuai ketentuan Google. Credential Google hanya disimpan sebagai environment variable backend.
 
@@ -89,7 +94,7 @@ Service `GardaJakarta-BE` memakai branch `main` dari repository ini.
 | `BETTER_AUTH_SECRET` | Secret acak minimal 32 byte |
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
-| `CORS_ORIGIN` | `https://app.gardajakarta.my.id https://gardajakarta.my.id http://localhost:5173 http://127.0.0.1:5173` |
+| `CORS_ORIGIN` | `https://app.gardajakarta.my.id https://gardajakarta.my.id http://localhost:5173 http://127.0.0.1:5173 http://localhost:3000 http://127.0.0.1:3000` |
 | `NODE_ENV` | `production` |
 
 Domain API: `api.gardajakarta.my.id`. Railway menjalankan `prisma migrate deploy` sebelum server start.
