@@ -8,6 +8,7 @@ import { rateLimit } from "express-rate-limit";
 import { z } from "zod";
 import { auth, normalizeRole, type AuthSession } from "./auth.js";
 import { prisma } from "./prisma.js";
+import { readImage } from "./storage.js";
 
 const reportInput = z.object({
   category: z.string().trim().min(2).max(80),
@@ -83,6 +84,22 @@ export function createApp() {
   app.get("/api/health", async (_request, response) => {
     await prisma.$queryRaw`SELECT 1`;
     response.json({ ok: true, service: "gardajakarta-be" });
+  });
+
+  app.get("/api/public/assets/*splat", async (request, response) => {
+    const segments = request.params.splat;
+    const key = Array.isArray(segments) ? segments.join("/") : segments;
+    if (!key || key.includes("..") || !key.startsWith("police-units/")) {
+      return response.status(404).json({ error: "Asset tidak ditemukan." });
+    }
+    try {
+      const image = await readImage(key);
+      response.setHeader("Content-Type", image.contentType);
+      response.setHeader("Cache-Control", image.cacheControl);
+      return response.send(image.body);
+    } catch {
+      return response.status(404).json({ error: "Asset tidak ditemukan." });
+    }
   });
 
   const readSession = async (request: Parameters<RequestHandler>[0]): Promise<AuthSession | null> => {

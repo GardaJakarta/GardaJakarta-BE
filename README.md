@@ -99,7 +99,7 @@ Service `GardaJakarta-BE` memakai branch `main` dari repository ini.
 | `S3_BUCKET_NAME` | Bucket for report evidence and published police-unit images |
 | `S3_ACCESS_KEY_ID` | Storage access key |
 | `S3_SECRET_ACCESS_KEY` | Storage secret key |
-| `S3_PUBLIC_BASE_URL` | Public base URL for published police-unit images |
+| `S3_PUBLIC_BASE_URL` | Tidak dipakai; Railway Bucket bersifat private dan asset disajikan melalui `/api/public/assets/*` |
 | `CORS_ORIGIN` | `https://app.gardajakarta.my.id https://gardajakarta.my.id http://localhost:5173 http://127.0.0.1:5173 http://localhost:3000 http://127.0.0.1:3000` |
 | `NODE_ENV` | `production` |
 
