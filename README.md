@@ -1,6 +1,6 @@
 # Garda Jakarta BE
 
-Backend Express + Prisma untuk `api.gardajakarta.my.id`. Service ini menyediakan autentikasi awal tiga portal dan fondasi PostgreSQL untuk fitur peta, laporan, penugasan, dan audit yang akan datang.
+Backend Express + Prisma untuk `api.gardajakarta.my.id`. Service ini menyediakan autentikasi tiga portal, peta publik, laporan warga, antrian unit polisi, ringkasan monitoring admin, dan audit dasar.
 
 ## Scope saat ini
 
@@ -13,6 +13,8 @@ Backend Express + Prisma untuk `api.gardajakarta.my.id`. Service ini menyediakan
 - Endpoint role `/api/warga/session`, `/api/polisi/session`, dan `/api/admin/session` tetap memvalidasi role di backend.
 - Prisma migration menyimpan akun credential dan OAuth provider pada model `Account`.
 - Audit log untuk provisioning akun staff.
+- Audit log untuk submit laporan dan perubahan status oleh petugas.
+- Dashboard API role-aware: warga hanya menerima laporan miliknya, polisi hanya menerima laporan unitnya, dan admin menerima agregat operasional.
 
 ## Menjalankan lokal
 
@@ -120,4 +122,4 @@ Dependency override `@prisma/config -> deepmerge-ts 8.0.2` menutup GHSA-ggr8-5vv
 
 ## Batasan tahap awal
 
-Endpoint laporan, peta, routing, moderasi, permission granular, notifikasi, dan dashboard operasional belum dibuat. Schema auth dan audit sudah menjadi fondasi untuk tahap tersebut.
+Routing berbasis polygon kewenangan, assignment lintas unit, incident clustering, moderasi granular, notifikasi, lampiran S3, dan kontrol permission detail masih menjadi tahap berikutnya. Fondasi auth, peta, laporan, role-aware dashboard, dan audit dasar sudah tersedia.
