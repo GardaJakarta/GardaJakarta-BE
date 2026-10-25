@@ -32,7 +32,18 @@ function serializeReport(report: { id: string; ticketNumber: string; category: s
 
 function publicReport(report: Parameters<typeof serializeReport>[0]) {
   const serialized = serializeReport(report);
-  return { ...serialized, latitude: Number(serialized.latitude.toFixed(3)), longitude: Number(serialized.longitude.toFixed(3)), description: undefined };
+  return {
+    id: serialized.id,
+    ticketNumber: serialized.ticketNumber,
+    category: serialized.category,
+    severity: serialized.severity,
+    status: serialized.status,
+    latitude: Number(serialized.latitude.toFixed(3)),
+    longitude: Number(serialized.longitude.toFixed(3)),
+    createdAt: serialized.createdAt,
+    updatedAt: serialized.updatedAt,
+    policeUnit: serialized.policeUnit,
+  };
 }
 
 function ticketNumber() {
