@@ -10,7 +10,7 @@ import { prisma } from "./prisma.js";
 export function createApp() {
   const app = express();
   const origins = (process.env.CORS_ORIGIN || "http://localhost:5173,https://gardajakarta.my.id,https://app.gardajakarta.my.id")
-    .split(",")
+    .split(/[\s,]+/)
     .map((origin) => origin.trim())
     .filter(Boolean);
 

@@ -7,7 +7,7 @@ import { prisma } from "./prisma.js";
 const production = process.env.NODE_ENV === "production";
 const apiUrl = process.env.BETTER_AUTH_URL || (production ? "https://api.gardajakarta.my.id" : "http://localhost:4000");
 const origins = (process.env.CORS_ORIGIN || "http://localhost:5173,https://gardajakarta.my.id,https://app.gardajakarta.my.id")
-  .split(",")
+  .split(/[\s,]+/)
   .map((origin) => origin.trim())
   .filter(Boolean);
 
