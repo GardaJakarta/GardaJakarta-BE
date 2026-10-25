@@ -96,6 +96,9 @@ export function createApp() {
       const image = await readImage(key);
       response.setHeader("Content-Type", image.contentType);
       response.setHeader("Cache-Control", image.cacheControl);
+      // Police-unit photos are public API assets consumed by the separate FE origin.
+      // Helmet's default same-origin CORP would make the browser drop these images.
+      response.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
       return response.send(image.body);
     } catch {
       return response.status(404).json({ error: "Asset tidak ditemukan." });
