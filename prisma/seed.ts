@@ -100,10 +100,10 @@ async function main() {
     credentials.push(`ADMIN | ${admin.name} | ${adminEmail} | ${previousPasswords.get(adminEmail) || "EXISTING_PASSWORD_NOT_REGENERATED"}`);
   }
 
-  const demoUser = await prisma.user.upsert({
+  const seedUser = await prisma.user.upsert({
     where: { email: "demo.warga@gardajakarta.my.id" },
-    update: { name: "Demo Warga (Data Simulasi)", role: "WARGA", emailVerified: true },
-    create: { id: "seed-demo-warga", name: "Demo Warga (Data Simulasi)", email: "demo.warga@gardajakarta.my.id", role: "WARGA", emailVerified: true },
+    update: { name: "Warga Garda Jakarta", role: "WARGA", emailVerified: true },
+    create: { id: "seed-warga", name: "Warga Garda Jakarta", email: "demo.warga@gardajakarta.my.id", role: "WARGA", emailVerified: true },
   });
   const seedDay = new Date().toISOString().slice(0, 10).replaceAll("-", "");
   const seededReports = [
@@ -114,8 +114,8 @@ async function main() {
   for (const [id, ticketNumber, category, description, severity, status, latitude, longitude, policeUnitId] of seededReports) {
     await prisma.incidentReport.upsert({
       where: { id },
-      update: { ticketNumber, category, description, severity, status, latitude, longitude, policeUnitId, reporterId: demoUser.id },
-      create: { id, ticketNumber, category, description, severity, status, latitude, longitude, policeUnitId, reporterId: demoUser.id },
+      update: { ticketNumber, category, description, severity, status, latitude, longitude, policeUnitId, reporterId: seedUser.id },
+      create: { id, ticketNumber, category, description, severity, status, latitude, longitude, policeUnitId, reporterId: seedUser.id },
     });
   }
 
