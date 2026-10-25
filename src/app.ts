@@ -172,7 +172,19 @@ export function createApp() {
       prisma.incidentReport.count({ where: { ...where, status: "RESOLVED" } }),
       prisma.policeUnit.findMany({ where: { isPublished: true }, orderBy: { name: "asc" } }),
     ]);
-    response.json({ data: { role, reports: reports.map(serializeReport), stats: { total, pending, inProgress, resolved }, units: units.map(serializePoliceUnit) } });
+    const adminOverview = role === "admin"
+      ? await Promise.all([
+        prisma.user.count(),
+        prisma.policeUnit.count({ where: { isPublished: true } }),
+        prisma.auditLog.count(),
+        prisma.incidentReport.findMany({ select: { category: true }, orderBy: { updatedAt: "desc" }, take: 1000 }),
+      ]).then(([users, publishedUnits, auditLogs, categoryRows]) => {
+        const categoryCounts = new Map<string, number>();
+        categoryRows.forEach(({ category }) => categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1));
+        return { users, units: publishedUnits, auditLogs, categories: [...categoryCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, count]) => ({ name, count })) };
+      })
+      : undefined;
+    response.json({ data: { role, reports: reports.map(serializeReport), stats: { total, pending, inProgress, resolved }, units: units.map(serializePoliceUnit), ...(adminOverview ? { adminOverview } : {}) } });
   });
 
   app.post("/api/reports", requireRole("warga"), async (request, response) => {
@@ -188,6 +200,7 @@ export function createApp() {
       data: { ...parsed.data, ticketNumber: ticketNumber(), reporterId: session.user.id, policeUnitId: nearest?.id },
       include: { policeUnit: { select: { name: true, district: true } } },
     });
+    await prisma.auditLog.create({ data: { actor: session.user.id, operation: "REPORT_SUBMITTED", resourceId: report.id, reason: "Warga mengirim laporan keamanan." } });
     response.status(201).json({ data: serializeReport(report) });
   });
 
@@ -206,6 +219,7 @@ export function createApp() {
     const existing = await prisma.incidentReport.findFirst({ where: { id: reportId, policeUnitId: operator?.policeUnitId ?? "__unassigned__" } });
     if (!existing) return response.status(404).json({ error: "Laporan tidak ditemukan di unit Anda." });
     const report = await prisma.incidentReport.update({ where: { id: reportId }, data: { status: parsed.data.status }, include: { policeUnit: { select: { name: true, district: true } } } });
+    await prisma.auditLog.create({ data: { actor: session.user.id, operation: "REPORT_STATUS_UPDATED", resourceId: report.id, reason: `Petugas memperbarui status menjadi ${parsed.data.status}.` } });
     response.json({ data: serializeReport(report) });
   });
 
