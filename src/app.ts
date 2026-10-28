@@ -9,6 +9,8 @@ import { z } from "zod";
 import { auth, normalizeRole, type AuthSession } from "./auth.js";
 import { prisma } from "./prisma.js";
 import { readImage } from "./storage.js";
+import swaggerUi from "swagger-ui-express";
+import { openapiDocument } from "./openapi.js";
 
 const reportInput = z.object({
   category: z.string().trim().min(2).max(80),
@@ -85,6 +87,9 @@ export function createApp() {
     await prisma.$queryRaw`SELECT 1`;
     response.json({ ok: true, service: "gardajakarta-be" });
   });
+
+  app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(openapiDocument, { customSiteTitle: "Garda Jakarta API Docs", swaggerOptions: { persistAuthorization: true } }));
+  app.get("/api/openapi.json", (_request, response) => response.json(openapiDocument));
 
   app.get("/api/public/assets/*splat", async (request, response) => {
     const segments = request.params.splat;
@@ -185,6 +190,18 @@ export function createApp() {
       })
       : undefined;
     response.json({ data: { role, reports: reports.map(serializeReport), stats: { total, pending, inProgress, resolved }, units: units.map(serializePoliceUnit), ...(adminOverview ? { adminOverview } : {}) } });
+  });
+
+  app.get("/api/reports/feed", requireSession, async (request, response) => {
+    const session = response.locals.session as AuthSession;
+    const role = normalizeRole(session.user.role);
+    const page = Math.max(1, Number(request.query.page || 1));
+    const limit = Math.min(50, Math.max(1, Number(request.query.limit || 10)));
+    const operator = role === "polisi" ? await prisma.user.findUnique({ where: { id: session.user.id }, select: { policeUnitId: true } }) : null;
+    const where = role === "warga" ? { reporterId: session.user.id } : role === "polisi" ? { policeUnitId: operator?.policeUnitId ?? "__unassigned__", status: { not: "REJECTED" as const } } : {};
+    const rows = await prisma.incidentReport.findMany({ where, orderBy: { updatedAt: "desc" }, skip: (page - 1) * limit, take: limit + 1, include: { policeUnit: { select: { name: true, district: true } } } });
+    const hasMore = rows.length > limit;
+    response.json({ data: { reports: rows.slice(0, limit).map(serializeReport), page, limit, hasMore } });
   });
 
   app.post("/api/reports", requireRole("warga"), async (request, response) => {
