@@ -107,11 +107,12 @@ async function main() {
   });
   const seedDay = new Date().toISOString().slice(0, 10).replaceAll("-", "");
   const seededReports = [
-    ["seed-report-1", `GJ-${seedDay}-0001`, "Gangguan penerangan atau fasilitas yang berdampak pada keamanan", "Lampu jalan mati di sekitar jalur pedestrian.", "P2", "VERIFIED", -6.1944, 106.8229, "polsek-menteng"],
-    ["seed-report-2", `GJ-${seedDay}-0002`, "Tawuran atau kerumunan berbahaya", "Terlihat kerumunan mencurigakan di dekat area parkir.", "P1", "IN_PROGRESS", -6.1978, 106.8264, "polsek-menteng"],
-    ["seed-report-3", `GJ-${seedDay}-0003`, "Gangguan penerangan atau fasilitas yang berdampak pada keamanan", "Penerangan area publik perlu diperiksa karena mengganggu keamanan malam hari.", "P3", "PENDING", -6.1919, 106.8278, "polsek-menteng"],
-    ["seed-report-4", `GJ-${seedDay}-0004`, "Pencurian atau kehilangan barang", "Laporan kehilangan di area transit yang sudah selesai ditangani.", "P2", "RESOLVED", -6.1958, 106.8198, "polsek-menteng"],
+    ["8f4a7c2e-3d91-4e6b-9b52-1c7a8f0d2e34", `GJ-${seedDay}-0001`, "Gangguan penerangan atau fasilitas yang berdampak pada keamanan", "Lampu jalan mati di sekitar jalur pedestrian.", "P2", "VERIFIED", -6.1944, 106.8229, "polsek-menteng"],
+    ["2b9d6e41-7f03-4a8c-b5d2-9e1f6c3a8b70", `GJ-${seedDay}-0002`, "Tawuran atau kerumunan berbahaya", "Terlihat kerumunan mencurigakan di dekat area parkir.", "P1", "IN_PROGRESS", -6.1978, 106.8264, "polsek-menteng"],
+    ["c6e2a914-5b78-46d0-8f31-7a4c9e2b6d05", `GJ-${seedDay}-0003`, "Gangguan penerangan atau fasilitas yang berdampak pada keamanan", "Penerangan area publik perlu diperiksa karena mengganggu keamanan malam hari.", "P3", "PENDING", -6.1919, 106.8278, "polsek-menteng"],
+    ["d1a83f56-0c29-4b7e-a642-5f9d2c8b1e73", `GJ-${seedDay}-0004`, "Pencurian atau kehilangan barang", "Laporan kehilangan di area transit yang sudah selesai ditangani.", "P2", "RESOLVED", -6.1958, 106.8198, "polsek-menteng"],
   ] as const;
+  await prisma.incidentReport.deleteMany({ where: { id: { in: ["seed-report-1", "seed-report-2", "seed-report-3", "seed-report-4"] } } });
   for (const [id, ticketNumber, category, description, severity, status, latitude, longitude, policeUnitId] of seededReports) {
     await prisma.incidentReport.upsert({
       where: { id },
@@ -123,13 +124,13 @@ async function main() {
   const mentengOfficer = await prisma.user.findFirst({ where: { policeUnitId: "polsek-menteng", role: "POLISI" } });
   const activityActorId = mentengOfficer?.id ?? admin.id;
   const activityRows = [
-    { reportId: "seed-report-1", actorId: seedUser.id, actorRole: "WARGA" as const, type: "SUBMITTED", status: "PENDING" as const, message: "Laporan diterima dan menunggu verifikasi.", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 28) },
-    { reportId: "seed-report-1", actorId: activityActorId, actorRole: "POLISI" as const, type: "STATUS_UPDATE", status: "VERIFIED" as const, message: "Laporan diverifikasi oleh petugas lapangan.", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 20) },
-    { reportId: "seed-report-2", actorId: seedUser.id, actorRole: "WARGA" as const, type: "SUBMITTED", status: "PENDING" as const, message: "Laporan kerumunan berbahaya dikirim warga.", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 18) },
-    { reportId: "seed-report-2", actorId: activityActorId, actorRole: "POLISI" as const, type: "STATUS_UPDATE", status: "VERIFIED" as const, message: "Petugas memvalidasi lokasi dan tingkat urgensi laporan.", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 14) },
-    { reportId: "seed-report-2", actorId: activityActorId, actorRole: "POLISI" as const, type: "STATUS_UPDATE", status: "IN_PROGRESS" as const, message: "Patroli dan tindak lanjut sedang berjalan di area laporan.", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 4) },
-    { reportId: "seed-report-3", actorId: seedUser.id, actorRole: "WARGA" as const, type: "SUBMITTED", status: "PENDING" as const, message: "Laporan baru diterima sistem.", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 8) },
-    { reportId: "seed-report-4", actorId: activityActorId, actorRole: "POLISI" as const, type: "STATUS_UPDATE", status: "RESOLVED" as const, message: "Penanganan selesai dan laporan ditutup.", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 32) },
+    { reportId: "8f4a7c2e-3d91-4e6b-9b52-1c7a8f0d2e34", actorId: seedUser.id, actorRole: "WARGA" as const, type: "SUBMITTED", status: "PENDING" as const, message: "Laporan diterima dan menunggu verifikasi.", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 28) },
+    { reportId: "8f4a7c2e-3d91-4e6b-9b52-1c7a8f0d2e34", actorId: activityActorId, actorRole: "POLISI" as const, type: "STATUS_UPDATE", status: "VERIFIED" as const, message: "Laporan diverifikasi oleh petugas lapangan.", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 20) },
+    { reportId: "2b9d6e41-7f03-4a8c-b5d2-9e1f6c3a8b70", actorId: seedUser.id, actorRole: "WARGA" as const, type: "SUBMITTED", status: "PENDING" as const, message: "Laporan kerumunan berbahaya dikirim warga.", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 18) },
+    { reportId: "2b9d6e41-7f03-4a8c-b5d2-9e1f6c3a8b70", actorId: activityActorId, actorRole: "POLISI" as const, type: "STATUS_UPDATE", status: "VERIFIED" as const, message: "Petugas memvalidasi lokasi dan tingkat urgensi laporan.", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 14) },
+    { reportId: "2b9d6e41-7f03-4a8c-b5d2-9e1f6c3a8b70", actorId: activityActorId, actorRole: "POLISI" as const, type: "STATUS_UPDATE", status: "IN_PROGRESS" as const, message: "Patroli dan tindak lanjut sedang berjalan di area laporan.", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 4) },
+    { reportId: "c6e2a914-5b78-46d0-8f31-7a4c9e2b6d05", actorId: seedUser.id, actorRole: "WARGA" as const, type: "SUBMITTED", status: "PENDING" as const, message: "Laporan baru diterima sistem.", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 8) },
+    { reportId: "d1a83f56-0c29-4b7e-a642-5f9d2c8b1e73", actorId: activityActorId, actorRole: "POLISI" as const, type: "STATUS_UPDATE", status: "RESOLVED" as const, message: "Penanganan selesai dan laporan ditutup.", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 32) },
   ];
   await prisma.reportActivity.deleteMany({ where: { reportId: { in: seededReports.map(([id]) => id) } } });
   await prisma.reportActivity.createMany({ data: activityRows });
