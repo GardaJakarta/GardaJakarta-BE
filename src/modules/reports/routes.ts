@@ -67,7 +67,7 @@ export function reportRouter(origins: string[]) {
       clarificationResponse: privateAccess ? report.clarificationResponse : null,
       activities: activities.map((item) => ({
         id: item.id, type: item.type, status: item.status, createdAt: item.createdAt,
-        message: privateAccess ? item.message : item.type === "CLARIFICATION_RECEIVED" ? "Pelapor mengirim klarifikasi untuk diperiksa petugas." : "Status penanganan diperbarui.",
+        message: privateAccess ? item.message : item.type === "CLARIFICATION_RECEIVED" ? "Pelapor mengirim klarifikasi untuk diperiksa petugas." : item.status === "PENDING" ? "Laporan diterima dan menunggu pemeriksaan." : item.status === "VERIFIED" ? "Laporan telah diverifikasi petugas." : item.status === "IN_PROGRESS" ? "Petugas mulai menindaklanjuti laporan." : item.status === "RESOLVED" ? "Penanganan laporan telah selesai." : "Status penanganan diperbarui.",
         author: item.actorRole === "POLISI" ? "Petugas" : item.actorRole === "WARGA" ? "Pelapor anonim" : "Sistem",
         evidence: privateAccess ? item.evidence.map(({ id }) => ({ id, url: `/api/reports/${report.id}/evidence/${id}` })) : [],
       })),
@@ -116,7 +116,11 @@ export function reportRouter(origins: string[]) {
     const reportId = String(req.params.id);
     const key = `report-evidence/${reportId}/${randomUUID()}.webp`;
     await uploadImage({ key, body, contentType: "image/webp" });
-    const evidence = await prisma.reportEvidence.create({ data: { reportId, uploaderId: res.locals.viewer.id, key }, select: { id: true } });
+    const report = await readable(reportId, res.locals.viewer);
+    const submitted = report.status === "PENDING" && report.reporterId === res.locals.viewer.id
+      ? await prisma.reportActivity.findFirst({ where: { reportId, type: "SUBMITTED", actorId: res.locals.viewer.id }, orderBy: { createdAt: "asc" } })
+      : null;
+    const evidence = await prisma.reportEvidence.create({ data: { reportId, uploaderId: res.locals.viewer.id, key, activityId: submitted?.id }, select: { id: true } });
     res.status(201).json({ data: evidence });
   });
   router.get("/reports/:id/evidence/:evidenceId", async (req, res) => {

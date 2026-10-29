@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { hashPassword } from "better-auth/crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { PrismaClient } from "@prisma/client";
+import sharp from "sharp";
 import { storageConfigured, uploadImage } from "../src/storage.js";
 
 const prisma = new PrismaClient();
@@ -131,9 +132,28 @@ async function main() {
     { reportId: "2b9d6e41-7f03-4a8c-b5d2-9e1f6c3a8b70", actorId: activityActorId, actorRole: "POLISI" as const, type: "STATUS_UPDATE", status: "IN_PROGRESS" as const, message: "Patroli dan tindak lanjut sedang berjalan di area laporan.", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 4) },
     { reportId: "c6e2a914-5b78-46d0-8f31-7a4c9e2b6d05", actorId: seedUser.id, actorRole: "WARGA" as const, type: "SUBMITTED", status: "PENDING" as const, message: "Laporan baru diterima sistem.", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 8) },
     { reportId: "d1a83f56-0c29-4b7e-a642-5f9d2c8b1e73", actorId: activityActorId, actorRole: "POLISI" as const, type: "STATUS_UPDATE", status: "RESOLVED" as const, message: "Penanganan selesai dan laporan ditutup.", createdAt: new Date(Date.now() - 1000 * 60 * 60 * 32) },
+    ...(["PENDING", "VERIFIED", "IN_PROGRESS"] as const).map((status, index) => ({ reportId: seededReports[3][0], actorId: index === 0 ? seedUser.id : activityActorId, actorRole: index === 0 ? "WARGA" as const : "POLISI" as const, type: index === 0 ? "SUBMITTED" : "STATUS_UPDATE", status, message: ["Laporan diterima untuk pemeriksaan.", "Lokasi dan kronologi sudah diverifikasi.", "Petugas melakukan pemeriksaan di lokasi."][index], createdAt: new Date(Date.now() - 1000 * 60 * 60 * (72 - index * 12)) })),
   ];
-  await prisma.reportActivity.deleteMany({ where: { reportId: { in: seededReports.map(([id]) => id) } } });
-  await prisma.reportActivity.createMany({ data: activityRows });
+  const activities = [];
+  for (const row of activityRows) {
+    const existing = await prisma.reportActivity.findFirst({ where: { reportId: row.reportId, type: row.type, status: row.status, actorId: row.actorId } });
+    activities.push(existing
+      ? await prisma.reportActivity.update({ where: { id: existing.id }, data: row })
+      : await prisma.reportActivity.create({ data: row }));
+  }
+  if (storageConfigured) {
+    // Reference photos exercise private evidence delivery, never public incident imagery.
+    const response = await fetch("https://images.unsplash.com/photo-1519608487953-e999c86e7455?auto=format&fit=crop&w=960&q=80");
+    if (!response.ok) throw new Error("Foto pendukung belum dapat diunduh.");
+    const evidenceBody = await sharp(Buffer.from(await response.arrayBuffer())).rotate().resize({ width: 960 }).webp({ quality: 85 }).toBuffer();
+    for (const activity of activities) {
+      const existing = await prisma.reportEvidence.findFirst({ where: { activityId: activity.id } });
+      if (existing) continue;
+      const key = `report-evidence/${activity.reportId}/${randomUUID()}.webp`;
+      await uploadImage({ key, body: evidenceBody, contentType: "image/webp" });
+      await prisma.reportEvidence.create({ data: { reportId: activity.reportId, uploaderId: activity.actorId || seedUser.id, activityId: activity.id, key } });
+    }
+  }
 
   await mkdir("secrets", { recursive: true });
   await writeFile(credentialPath, `${credentials.join("\n")}\n`, { encoding: "utf8", flag: "w" });
