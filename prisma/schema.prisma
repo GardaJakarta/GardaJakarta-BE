@@ -120,14 +120,17 @@ model ReportEvidence {
   reportId   String
   uploaderId String
   activityId String?
+  commentId  String?
   key        String @unique
   report     IncidentReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
   uploader   User @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
   activity   ReportActivity? @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  comment    ReportComment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
   createdAt  DateTime @default(now())
   @@index([reportId])
   @@index([uploaderId])
   @@index([activityId])
+  @@index([commentId])
 }
 
 model ReportVote {
@@ -150,6 +153,7 @@ model ReportComment {
   body      String
   report    IncidentReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
   author    User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  evidence  ReportEvidence[]
   createdAt DateTime       @default(now())
 
   @@index([reportId, createdAt])

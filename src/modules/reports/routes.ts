@@ -20,6 +20,7 @@ const input = z.object({
 const statusInput = input.extend({ status: z.enum(["VERIFIED", "IN_PROGRESS", "CLARIFICATION", "RESOLVED", "REJECTED"]) });
 const pagination = z.coerce.number().int().min(1).max(10000).default(1);
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 0 } });
+const commentUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 3, fields: 1, fieldSize: 4096 } });
 
 export function reportRouter(origins: string[]) {
   const router = Router();
@@ -50,14 +51,14 @@ export function reportRouter(origins: string[]) {
     const privateAccess = canReadPrivate(report, viewer);
     const [activities, comments, voteCount, vote, activityCount, commentCount] = await Promise.all([
       prisma.reportActivity.findMany({ where: { reportId: report.id }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: (page - 1) * 20, take: 20, include: { evidence: { select: { id: true } } } }),
-      prisma.reportComment.findMany({ where: { reportId: report.id }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: (page - 1) * 20, take: 20, select: { id: true, body: true, createdAt: true } }),
+      prisma.reportComment.findMany({ where: { reportId: report.id }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: (page - 1) * 20, take: 20, select: { id: true, body: true, createdAt: true, evidence: { select: { id: true } } } }),
       prisma.reportVote.count({ where: { reportId: report.id } }),
       viewer ? prisma.reportVote.findUnique({ where: { reportId_voterId: { reportId: report.id, voterId: viewer.id } }, select: { id: true } }) : null,
       prisma.reportActivity.count({ where: { reportId: report.id } }),
       prisma.reportComment.count({ where: { reportId: report.id } }),
     ]);
     res.json({ data: {
-      status: report.status, voteCount, hasVoted: Boolean(vote), comments, page,
+      status: report.status, voteCount, hasVoted: Boolean(vote), comments: comments.map((item) => ({ ...item, evidence: item.evidence.map(({ id }) => ({ id, url: `/api/reports/${report.id}/evidence/${id}` })) })), page,
       hasMore: page * 20 < Math.max(activityCount, commentCount),
       canParticipate: viewer?.role === "WARGA" && report.status !== "REJECTED",
       canManage: canManage(report, viewer),
@@ -87,13 +88,36 @@ export function reportRouter(origins: string[]) {
     await prisma.reportVote.deleteMany({ where: { reportId: report.id, voterId: viewer.id } });
     res.json({ data: { voteCount: await prisma.reportVote.count({ where: { reportId: report.id } }), hasVoted: false } });
   });
-  router.post("/reports/:id/comments", async (req, res) => {
+  router.post("/reports/:id/comments", async (req, res, next) => {
     const viewer = res.locals.viewer as Viewer;
     const report = await readable(String(req.params.id), viewer);
     if (viewer.role !== "WARGA" || report.status === "REJECTED") throw new ReportError(403, "Komentar tidak tersedia untuk laporan ini.");
+    next();
+  }, commentUpload.array("images", 3), async (req, res) => {
+    const viewer = res.locals.viewer as Viewer;
+    const report = await readable(String(req.params.id), viewer);
+    if (viewer.role !== "WARGA" || report.status === "REJECTED") throw new ReportError(403, "Komentar tidak tersedia untuk laporan ini.");
+    if (!storageConfigured && ((req.files as Express.Multer.File[] | undefined)?.length ?? 0) > 0) throw new ReportError(503, "Penyimpanan foto belum tersedia.");
     const parsed = z.object({ body: z.string().trim().min(2).max(500) }).safeParse(req.body);
     if (!parsed.success) throw new ReportError(400, "Isi komentar 2 sampai 500 karakter.");
-    const comment = await prisma.reportComment.create({ data: { reportId: report.id, authorId: viewer.id, body: parsed.data.body }, select: { id: true, body: true, createdAt: true } });
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+    if (files.length > 3 || files.some((file) => !["image/jpeg", "image/png", "image/webp"].includes(file.mimetype))) throw new ReportError(400, "Pilih maksimal 3 foto JPG, PNG, atau WebP.");
+    const images: Buffer[] = [];
+    for (const file of files) {
+      try {
+        const image = sharp(file.buffer, { limitInputPixels: 25_000_000 });
+        const metadata = await image.metadata();
+        if (!["jpeg", "png", "webp"].includes(metadata.format || "") || (metadata.pages ?? 1) > 1) throw new Error("Invalid image");
+        images.push(await image.rotate().resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true }).webp({ quality: 85 }).toBuffer());
+      } catch { throw new ReportError(400, "Foto komentar tidak valid."); }
+    }
+    const evidence: Array<{ reportId: string; uploaderId: string; key: string }> = [];
+    for (const body of images) {
+      const key = `report-evidence/${report.id}/${randomUUID()}.webp`;
+      await uploadImage({ key, body, contentType: "image/webp" });
+      evidence.push({ reportId: report.id, uploaderId: viewer.id, key });
+    }
+    const comment = await prisma.reportComment.create({ data: { reportId: report.id, authorId: viewer.id, body: parsed.data.body, evidence: { create: evidence } }, select: { id: true, body: true, createdAt: true } });
     res.status(201).json({ data: comment });
   });
 
@@ -126,9 +150,10 @@ export function reportRouter(origins: string[]) {
   router.get("/reports/:id/evidence/:evidenceId", async (req, res) => {
     const viewer = res.locals.viewer as Viewer | null;
     const report = await readable(String(req.params.id), viewer);
-    if (!canReadPrivate(report, viewer)) throw new ReportError(403, "Bukti hanya tersedia untuk pelapor dan petugas berwenang.");
-    const evidence = await prisma.reportEvidence.findFirst({ where: { id: String(req.params.evidenceId), reportId: report.id, OR: [{ activityId: { not: null } }, { uploaderId: viewer!.id }] } });
+    const evidence = await prisma.reportEvidence.findFirst({ where: { id: String(req.params.evidenceId), reportId: report.id } });
     if (!evidence) throw new ReportError(404, "Bukti tidak ditemukan.");
+    // Comment attachments share their comment's visibility; case evidence stays private.
+    if (!evidence.commentId && (!canReadPrivate(report, viewer) || (!evidence.activityId && evidence.uploaderId !== viewer?.id))) throw new ReportError(403, "Bukti hanya tersedia untuk pelapor dan petugas berwenang.");
     const file = await readImage(evidence.key);
     res.setHeader("Cache-Control", "private, no-store");
     res.setHeader("Content-Type", "image/webp");
@@ -167,14 +192,14 @@ export function reportRouter(origins: string[]) {
       if (updated.count !== 1) throw new ReportError(409, "Laporan sudah diperbarui. Muat ulang sebelum melanjutkan.");
       const activity = await tx.reportActivity.create({ data: { reportId: report.id, actorId: viewer.id, actorRole: viewer.role, status: change.status, type: reply ? "CLARIFICATION_RECEIVED" : change.status === "CLARIFICATION" ? "CLARIFICATION_REQUESTED" : "STATUS_CHANGED", message: change.message } });
       const ids = [...new Set(change.evidenceIds)];
-      const attached = await tx.reportEvidence.updateMany({ where: { id: { in: ids }, reportId: report.id, uploaderId: viewer.id, activityId: null }, data: { activityId: activity.id } });
+      const attached = await tx.reportEvidence.updateMany({ where: { id: { in: ids }, reportId: report.id, uploaderId: viewer.id, activityId: null, commentId: null }, data: { activityId: activity.id } });
       if (attached.count !== ids.length) throw new ReportError(400, "Bukti tidak valid atau sudah digunakan.");
       await tx.auditLog.create({ data: { actor: viewer.id, operation: activity.type, resourceId: report.id, reason: `Status ${report.status} -> ${change.status}` } });
     });
   }
   const errorHandler: ErrorRequestHandler = (error, _req, res, next) => {
     if (error instanceof ReportError) { res.status(error.status).json({ error: error.message }); return; }
-    if (error instanceof multer.MulterError) { res.status(400).json({ error: "Unggah satu foto, maksimal 5 MB." }); return; }
+    if (error instanceof multer.MulterError) { res.status(400).json({ error: "Jumlah atau ukuran foto melebihi batas. Maksimal 5 MB per foto." }); return; }
     next(error);
   };
   router.use(errorHandler);
