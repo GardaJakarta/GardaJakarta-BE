@@ -11,6 +11,7 @@ import { prisma } from "./prisma.js";
 import { readImage } from "./storage.js";
 import swaggerUi from "swagger-ui-express";
 import { openapiDocument } from "./openapi.js";
+import { reportRouter } from "./modules/reports/routes.js";
 
 const reportInput = z.object({
   category: z.string().trim().min(2).max(80),
@@ -24,14 +25,30 @@ function serializePoliceUnit(unit: { id: string; name: string; district: string;
   return { ...unit, latitude: Number(unit.latitude), longitude: Number(unit.longitude) };
 }
 
-function serializeReport(report: { id: string; ticketNumber: string; category: string; description: string; severity: string; status: string; latitude: unknown; longitude: unknown; createdAt: Date; updatedAt: Date; policeUnit?: { name: string; district: string } | null }) {
+function serializeReport(report: { id: string; ticketNumber: string; category: string; description: string; severity: string; status: string; latitude: unknown; longitude: unknown; createdAt: Date; updatedAt: Date; policeUnit?: { name: string; district: string } | null; clarificationPrompt?: string | null; clarificationResponse?: string | null; clarificationRequestedAt?: Date | null; clarificationRespondedAt?: Date | null; activities?: Array<{ id: string; type: string; message: string; createdAt: Date }>; _count?: { votes: number; comments: number }; votes?: Array<{ voterId: string }> }) {
   return {
-    ...report,
+    id: report.id, ticketNumber: report.ticketNumber, category: report.category,
+    description: report.description, status: report.status, severity: report.severity,
+    createdAt: report.createdAt, updatedAt: report.updatedAt,
     latitude: Number(report.latitude),
     longitude: Number(report.longitude),
     policeUnit: report.policeUnit ?? null,
+    clarificationPrompt: report.clarificationPrompt ?? null,
+    clarificationResponse: report.clarificationResponse ?? null,
+    clarificationRequestedAt: report.clarificationRequestedAt ?? null,
+    clarificationRespondedAt: report.clarificationRespondedAt ?? null,
+    activities: report.activities?.map((activity) => ({ id: activity.id, type: activity.type, message: activity.message, createdAt: activity.createdAt })) ?? [],
+    voteCount: report._count?.votes ?? 0,
+    commentCount: report._count?.comments ?? 0,
+    hasVoted: Boolean(report.votes?.length),
   };
 }
+
+const reportInteractionInclude = {
+  policeUnit: { select: { name: true, district: true } },
+  activities: { orderBy: { createdAt: "asc" as const }, select: { id: true, type: true, message: true, createdAt: true } },
+  _count: { select: { votes: true, comments: true } },
+} as const;
 
 function publicReport(report: Parameters<typeof serializeReport>[0]) {
   const serialized = serializeReport(report);
@@ -151,7 +168,7 @@ export function createApp() {
     const [units, reports] = await Promise.all([
       prisma.policeUnit.findMany({ where: { isPublished: true }, orderBy: { name: "asc" } }),
       prisma.incidentReport.findMany({
-        where: { status: { in: ["PENDING", "VERIFIED", "IN_PROGRESS", "RESOLVED"] } },
+        where: { status: { in: ["PENDING", "VERIFIED", "IN_PROGRESS", "CLARIFICATION", "RESOLVED"] } },
         orderBy: { updatedAt: "desc" },
         take: 200,
         include: { policeUnit: { select: { name: true, district: true } } },
@@ -170,7 +187,7 @@ export function createApp() {
         ? { policeUnitId: operator?.policeUnitId ?? "__unassigned__", status: { not: "REJECTED" as const } }
         : {};
     const [reports, total, pending, inProgress, resolved, units] = await Promise.all([
-      prisma.incidentReport.findMany({ where, orderBy: { updatedAt: "desc" }, take: 30, include: { policeUnit: { select: { name: true, district: true } } } }),
+      prisma.incidentReport.findMany({ where, orderBy: { updatedAt: "desc" }, take: 30, include: reportInteractionInclude }),
       prisma.incidentReport.count({ where }),
       prisma.incidentReport.count({ where: { ...where, status: "PENDING" } }),
       prisma.incidentReport.count({ where: { ...where, status: "IN_PROGRESS" } }),
@@ -199,7 +216,7 @@ export function createApp() {
     const limit = Math.min(50, Math.max(1, Number(request.query.limit || 10)));
     const operator = role === "polisi" ? await prisma.user.findUnique({ where: { id: session.user.id }, select: { policeUnitId: true } }) : null;
     const where = role === "warga" ? { reporterId: session.user.id } : role === "polisi" ? { policeUnitId: operator?.policeUnitId ?? "__unassigned__", status: { not: "REJECTED" as const } } : {};
-    const rows = await prisma.incidentReport.findMany({ where, orderBy: { updatedAt: "desc" }, skip: (page - 1) * limit, take: limit + 1, include: { policeUnit: { select: { name: true, district: true } } } });
+    const rows = await prisma.incidentReport.findMany({ where, orderBy: [{ updatedAt: "desc" }, { id: "desc" }], skip: (page - 1) * limit, take: limit + 1, include: reportInteractionInclude });
     const hasMore = rows.length > limit;
     response.json({ data: { reports: rows.slice(0, limit).map(serializeReport), page, limit, hasMore } });
   });
@@ -214,8 +231,8 @@ export function createApp() {
       return distance(a) - distance(b);
     })[0];
     const report = await prisma.incidentReport.create({
-      data: { ...parsed.data, ticketNumber: ticketNumber(), reporterId: session.user.id, policeUnitId: nearest?.id },
-      include: { policeUnit: { select: { name: true, district: true } } },
+      data: { ...parsed.data, ticketNumber: ticketNumber(), reporterId: session.user.id, policeUnitId: nearest?.id, activities: { create: { actorId: session.user.id, actorRole: "WARGA", type: "SUBMITTED", status: "PENDING", message: "Laporan dibuat oleh warga." } } },
+      include: reportInteractionInclude,
     });
     await prisma.auditLog.create({ data: { actor: session.user.id, operation: "REPORT_SUBMITTED", resourceId: report.id, reason: "Warga mengirim laporan keamanan." } });
     response.status(201).json({ data: serializeReport(report) });
@@ -223,22 +240,11 @@ export function createApp() {
 
   app.get("/api/reports/mine", requireRole("warga"), async (_request, response) => {
     const session = response.locals.session as AuthSession;
-    const reports = await prisma.incidentReport.findMany({ where: { reporterId: session.user.id }, orderBy: { createdAt: "desc" }, include: { policeUnit: { select: { name: true, district: true } } } });
+    const reports = await prisma.incidentReport.findMany({ where: { reporterId: session.user.id }, orderBy: { createdAt: "desc" }, include: reportInteractionInclude });
     response.json({ data: reports.map(serializeReport) });
   });
 
-  app.patch("/api/police/reports/:id/status", requireRole("polisi"), async (request, response) => {
-    const parsed = z.object({ status: z.enum(["VERIFIED", "IN_PROGRESS", "RESOLVED", "REJECTED"]) }).safeParse(request.body);
-    if (!parsed.success) return response.status(400).json({ error: "Status laporan tidak valid." });
-    const reportId = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
-    const session = response.locals.session as AuthSession;
-    const operator = await prisma.user.findUnique({ where: { id: session.user.id }, select: { policeUnitId: true } });
-    const existing = await prisma.incidentReport.findFirst({ where: { id: reportId, policeUnitId: operator?.policeUnitId ?? "__unassigned__" } });
-    if (!existing) return response.status(404).json({ error: "Laporan tidak ditemukan di unit Anda." });
-    const report = await prisma.incidentReport.update({ where: { id: reportId }, data: { status: parsed.data.status }, include: { policeUnit: { select: { name: true, district: true } } } });
-    await prisma.auditLog.create({ data: { actor: session.user.id, operation: "REPORT_STATUS_UPDATED", resourceId: report.id, reason: `Petugas memperbarui status menjadi ${parsed.data.status}.` } });
-    response.json({ data: serializeReport(report) });
-  });
+  app.use("/api", reportRouter(origins));
 
   app.use((_request, response) => response.status(404).json({ error: "Endpoint tidak ditemukan." }));
   const errorHandler: ErrorRequestHandler = (error, _request, response, next) => {

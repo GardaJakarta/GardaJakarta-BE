@@ -24,6 +24,7 @@ enum ReportStatus {
   PENDING
   VERIFIED
   IN_PROGRESS
+  CLARIFICATION
   RESOLVED
   REJECTED
 }
@@ -41,6 +42,10 @@ model User {
   sessions      Session[]
   accounts      Account[]
   reports       IncidentReport[]
+  reportActivities ReportActivity[]
+  reportVotes    ReportVote[]
+  reportComments ReportComment[]
+  reportEvidence ReportEvidence[]
   policeUnitId  String?
   policeUnit    PoliceUnit? @relation(fields: [policeUnitId], references: [id], onDelete: SetNull)
 }
@@ -79,10 +84,76 @@ model IncidentReport {
   policeUnit    PoliceUnit?    @relation(fields: [policeUnitId], references: [id], onDelete: SetNull)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
+  activities    ReportActivity[]
+  votes         ReportVote[]
+  comments      ReportComment[]
+  evidence      ReportEvidence[]
+  clarificationPrompt       String?
+  clarificationResponse     String?
+  clarificationRequestedAt  DateTime?
+  clarificationRespondedAt  DateTime?
 
   @@index([reporterId, createdAt])
   @@index([policeUnitId, status])
   @@index([status, createdAt])
+}
+
+model ReportActivity {
+  id        String         @id @default(cuid())
+  reportId  String
+  report    IncidentReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  actorId   String?
+  actor     User?          @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actorRole UserRole?
+  type      String
+  status    ReportStatus?
+  message   String
+  evidence  ReportEvidence[]
+  createdAt DateTime       @default(now())
+
+  @@index([reportId, createdAt])
+  @@index([actorId])
+}
+
+model ReportEvidence {
+  id         String @id @default(cuid())
+  reportId   String
+  uploaderId String
+  activityId String?
+  key        String @unique
+  report     IncidentReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  uploader   User @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  activity   ReportActivity? @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+  @@index([reportId])
+  @@index([uploaderId])
+  @@index([activityId])
+}
+
+model ReportVote {
+  id        String         @id @default(cuid())
+  reportId  String
+  voterId   String
+  report    IncidentReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  voter     User           @relation(fields: [voterId], references: [id], onDelete: Cascade)
+  createdAt DateTime       @default(now())
+
+  @@unique([reportId, voterId])
+  @@index([reportId])
+  @@index([voterId])
+}
+
+model ReportComment {
+  id        String         @id @default(cuid())
+  reportId  String
+  authorId  String
+  body      String
+  report    IncidentReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  author    User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  createdAt DateTime       @default(now())
+
+  @@index([reportId, createdAt])
+  @@index([authorId])
 }
 
 model Session {
