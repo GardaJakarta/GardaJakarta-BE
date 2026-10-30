@@ -195,16 +195,33 @@ export function createApp() {
       prisma.policeUnit.findMany({ where: { isPublished: true }, orderBy: { name: "asc" } }),
     ]);
     const adminOverview = role === "admin"
-      ? await Promise.all([
-        prisma.user.count(),
-        prisma.policeUnit.count({ where: { isPublished: true } }),
-        prisma.auditLog.count(),
-        prisma.incidentReport.findMany({ select: { category: true }, orderBy: { updatedAt: "desc" }, take: 1000 }),
-      ]).then(([users, publishedUnits, auditLogs, categoryRows]) => {
-        const categoryCounts = new Map<string, number>();
-        categoryRows.forEach(({ category }) => categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1));
-        return { users, units: publishedUnits, auditLogs, categories: [...categoryCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, count]) => ({ name, count })) };
-      })
+      ? await (async () => {
+        const [users, allUnits, auditLogs, reportsTotal, assignedPolice, categoryRows, statusRows, unitRows] = await Promise.all([
+          prisma.user.count(),
+          prisma.policeUnit.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, district: true, address: true, isPublished: true, _count: { select: { reports: true, staff: { where: { role: "POLISI" } } } } } }),
+          prisma.auditLog.count(),
+          prisma.incidentReport.count(),
+          prisma.user.count({ where: { role: "POLISI", policeUnitId: { not: null } } }),
+          prisma.incidentReport.groupBy({ by: ["category"], _count: { _all: true }, orderBy: { _count: { category: "desc" } } }),
+          prisma.incidentReport.groupBy({ by: ["status"], _count: { _all: true } }),
+          prisma.incidentReport.groupBy({ by: ["policeUnitId"], _count: { _all: true } }),
+        ]);
+        const unitsById = new Map(allUnits.map((unit) => [unit.id, unit]));
+        return {
+          users,
+          units: allUnits.length,
+          publishedUnits: allUnits.filter((unit) => unit.isPublished).length,
+          districts: new Set(allUnits.map((unit) => unit.district)).size,
+          categoriesCount: categoryRows.length,
+          reports: reportsTotal,
+          assignedPolice,
+          auditLogs,
+          categories: categoryRows.map((row) => ({ name: row.category, count: row._count._all })),
+          statuses: statusRows.map((row) => ({ status: row.status, count: row._count._all })),
+          unitsByReport: unitRows.map((row) => ({ name: unitsById.get(row.policeUnitId || "")?.name || "Belum dirutekan", count: row._count._all })).sort((a, b) => b.count - a.count),
+          unitDirectory: allUnits.map(({ _count, ...unit }) => ({ ...unit, reports: _count.reports, staff: _count.staff })),
+        };
+      })()
       : undefined;
     const notifications = reports.flatMap((report) => report.activities.map((activity) => ({
       id: activity.id, title: activity.type === "SUBMITTED" ? "Laporan masuk" : "Pembaruan penanganan",
@@ -213,13 +230,41 @@ export function createApp() {
     response.json({ data: { role, notifications, reports: reports.map(serializeReport), stats: { total, pending, inProgress, resolved }, units: units.map(serializePoliceUnit), ...(adminOverview ? { adminOverview } : {}) } });
   });
 
+  app.get("/api/admin/users", requireRole("admin"), async (request, response) => {
+    const parsed = z.object({
+      page: z.coerce.number().int().min(1).max(100000).default(1),
+      search: z.string().trim().max(100).default(""),
+    }).safeParse(request.query);
+    if (!parsed.success) return response.status(400).json({ error: "Filter pengguna tidak valid." });
+    const { page, search } = parsed.data;
+    const where: Prisma.UserWhereInput = search ? { OR: [
+      { name: { contains: search, mode: "insensitive" } },
+      { email: { contains: search, mode: "insensitive" } },
+    ] } : {};
+    const [users, total] = await Promise.all([
+      prisma.user.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: (page - 1) * 20, take: 20,
+        select: { id: true, name: true, email: true, role: true, createdAt: true, policeUnit: { select: { name: true } } } }),
+      prisma.user.count({ where }),
+    ]);
+    response.json({ data: { users, total, page, hasMore: page * 20 < total } });
+  });
+
   app.get("/api/reports/feed", requireSession, async (request, response) => {
     const session = response.locals.session as AuthSession;
     const role = normalizeRole(session.user.role);
-    const page = Math.max(1, Number(request.query.page || 1));
-    const limit = Math.min(50, Math.max(1, Number(request.query.limit || 10)));
+    const parsed = z.object({
+      page: z.coerce.number().int().min(1).max(100000).default(1),
+      limit: z.coerce.number().int().min(1).max(50).default(10),
+      search: z.string().trim().max(100).default(""),
+      status: z.enum(["PENDING", "VERIFIED", "IN_PROGRESS", "CLARIFICATION", "RESOLVED", "REJECTED"]).optional(),
+    }).safeParse(request.query);
+    if (!parsed.success) return response.status(400).json({ error: "Filter laporan tidak valid." });
+    const { page, limit, search, status } = parsed.data;
     const operator = role === "polisi" ? await prisma.user.findUnique({ where: { id: session.user.id }, select: { policeUnitId: true } }) : null;
-    const where = role === "warga" ? { reporterId: session.user.id } : role === "polisi" ? { policeUnitId: operator?.policeUnitId ?? "__unassigned__", status: { not: "REJECTED" as const } } : {};
+    const where: Prisma.IncidentReportWhereInput = role === "warga" ? { reporterId: session.user.id } : role === "polisi" ? { policeUnitId: operator?.policeUnitId ?? "__unassigned__", status: { not: "REJECTED" as const } } : {
+      ...(status ? { status } : {}),
+      ...(search ? { OR: ["category", "ticketNumber", "description"].map((field) => ({ [field]: { contains: search, mode: "insensitive" } })) } : {}),
+    };
     const rows = await prisma.incidentReport.findMany({ where, orderBy: [{ updatedAt: "desc" }, { id: "desc" }], skip: (page - 1) * limit, take: limit + 1, include: reportInteractionInclude });
     const hasMore = rows.length > limit;
     response.json({ data: { reports: rows.slice(0, limit).map(serializeReport), page, limit, hasMore } });
