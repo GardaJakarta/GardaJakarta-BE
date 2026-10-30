@@ -206,7 +206,11 @@ export function createApp() {
         return { users, units: publishedUnits, auditLogs, categories: [...categoryCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, count]) => ({ name, count })) };
       })
       : undefined;
-    response.json({ data: { role, reports: reports.map(serializeReport), stats: { total, pending, inProgress, resolved }, units: units.map(serializePoliceUnit), ...(adminOverview ? { adminOverview } : {}) } });
+    const notifications = reports.flatMap((report) => report.activities.map((activity) => ({
+      id: activity.id, title: activity.type === "SUBMITTED" ? "Laporan masuk" : "Pembaruan penanganan",
+      body: report.ticketNumber + " - " + activity.message, createdAt: activity.createdAt.getTime(),
+    }))).sort((a, b) => b.createdAt - a.createdAt).slice(0, 20);
+    response.json({ data: { role, notifications, reports: reports.map(serializeReport), stats: { total, pending, inProgress, resolved }, units: units.map(serializePoliceUnit), ...(adminOverview ? { adminOverview } : {}) } });
   });
 
   app.get("/api/reports/feed", requireSession, async (request, response) => {
