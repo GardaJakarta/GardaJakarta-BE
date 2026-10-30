@@ -137,6 +137,8 @@ async function main() {
     ["e3c8f1a6-7d24-4b95-90e1-5a2f6c3d8b74", "GJ-E3C8F1A6", "Begal atau perampokan", "Pengemudi ojek online melaporkan percobaan pemblokiran jalan pada malam hari.", "P0", "PENDING", -6.1424, 106.8846, "polres-jakarta-utara"],
     ["f6b1d8a4-3c75-4e92-80a6-1f7c5d2b9e64", "GJ-F6B1D8A4", "Pelecehan atau kekerasan seksual", "Laporan dugaan pelecehan diterima dari area transportasi yang padat.", "P1", "CLARIFICATION", -6.2173, 106.8246, "polda-metro-jaya"],
   ] as const;
+  const categoryNames = [...new Set(seededReports.map(([, , category]) => category))];
+  for (const name of categoryNames) await prisma.reportCategory.upsert({ where: { name }, update: {}, create: { id: randomUUID(), name } });
   await prisma.incidentReport.deleteMany({ where: { id: { in: ["seed-report-1", "seed-report-2", "seed-report-3", "seed-report-4"] } } });
   for (const [id, , category, description, severity, status, latitude, longitude, policeUnitId] of seededReports) {
     const ticketNumber = id.toUpperCase();

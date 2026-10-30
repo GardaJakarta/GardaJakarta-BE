@@ -11,10 +11,11 @@ import { prisma } from "./prisma.js";
 import { readImage } from "./storage.js";
 import swaggerUi from "swagger-ui-express";
 import { openapiDocument } from "./openapi.js";
+import { adminRouter } from "./modules/admin/routes.js";
 import { reportRouter } from "./modules/reports/routes.js";
 
 const reportInput = z.object({
-  category: z.string().trim().min(2).max(80),
+  category: z.string().trim().min(2).max(120),
   description: z.string().trim().min(10).max(2000),
   severity: z.enum(["P0", "P1", "P2", "P3"]).default("P2"),
   latitude: z.number().min(-7.2).max(-5.8),
@@ -164,6 +165,10 @@ export function createApp() {
     });
   }
 
+  app.get("/api/public/categories", async (_request, response) => {
+    response.json({ data: await prisma.reportCategory.findMany({ orderBy: { createdAt: "asc" }, select: { id: true, name: true } }) });
+  });
+
   app.get("/api/public/map", async (_request, response) => {
     const [units, reports] = await Promise.all([
       prisma.policeUnit.findMany({ where: { isPublished: true }, orderBy: { name: "asc" } }),
@@ -196,7 +201,7 @@ export function createApp() {
     ]);
     const adminOverview = role === "admin"
       ? await (async () => {
-        const [users, allUnits, auditLogs, reportsTotal, assignedPolice, categoryRows, statusRows, unitRows] = await Promise.all([
+        const [users, allUnits, auditLogs, reportsTotal, assignedPolice, categoryRows, statusRows, unitRows, categoriesTotal] = await Promise.all([
           prisma.user.count(),
           prisma.policeUnit.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, district: true, address: true, isPublished: true, _count: { select: { reports: true, staff: { where: { role: "POLISI" } } } } } }),
           prisma.auditLog.count(),
@@ -205,6 +210,7 @@ export function createApp() {
           prisma.incidentReport.groupBy({ by: ["category"], _count: { _all: true }, orderBy: { _count: { category: "desc" } } }),
           prisma.incidentReport.groupBy({ by: ["status"], _count: { _all: true } }),
           prisma.incidentReport.groupBy({ by: ["policeUnitId"], _count: { _all: true } }),
+          prisma.reportCategory.count(),
         ]);
         const unitsById = new Map(allUnits.map((unit) => [unit.id, unit]));
         return {
@@ -212,7 +218,7 @@ export function createApp() {
           units: allUnits.length,
           publishedUnits: allUnits.filter((unit) => unit.isPublished).length,
           districts: new Set(allUnits.map((unit) => unit.district)).size,
-          categoriesCount: categoryRows.length,
+          categoriesCount: categoriesTotal,
           reports: reportsTotal,
           assignedPolice,
           auditLogs,
@@ -230,24 +236,7 @@ export function createApp() {
     response.json({ data: { role, notifications, reports: reports.map(serializeReport), stats: { total, pending, inProgress, resolved }, units: units.map(serializePoliceUnit), ...(adminOverview ? { adminOverview } : {}) } });
   });
 
-  app.get("/api/admin/users", requireRole("admin"), async (request, response) => {
-    const parsed = z.object({
-      page: z.coerce.number().int().min(1).max(100000).default(1),
-      search: z.string().trim().max(100).default(""),
-    }).safeParse(request.query);
-    if (!parsed.success) return response.status(400).json({ error: "Filter pengguna tidak valid." });
-    const { page, search } = parsed.data;
-    const where: Prisma.UserWhereInput = search ? { OR: [
-      { name: { contains: search, mode: "insensitive" } },
-      { email: { contains: search, mode: "insensitive" } },
-    ] } : {};
-    const [users, total] = await Promise.all([
-      prisma.user.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: (page - 1) * 20, take: 20,
-        select: { id: true, name: true, email: true, role: true, createdAt: true, policeUnit: { select: { name: true } } } }),
-      prisma.user.count({ where }),
-    ]);
-    response.json({ data: { users, total, page, hasMore: page * 20 < total } });
-  });
+  app.use("/api/admin", adminRouter(origins));
 
   app.get("/api/reports/feed", requireSession, async (request, response) => {
     const session = response.locals.session as AuthSession;

@@ -124,7 +124,7 @@ export function reportRouter(origins: string[]) {
   router.post("/reports/:id/evidence", async (req, res, next) => {
     const report = await readable(String(req.params.id), res.locals.viewer);
     const viewer = res.locals.viewer as Viewer;
-    if (!canManage(report, viewer) && !(viewer.id === report.reporterId && ["PENDING", "CLARIFICATION"].includes(report.status))) throw new ReportError(403, "Anda tidak dapat mengunggah bukti untuk laporan ini.");
+    if (viewer.role !== "ADMIN" && !canManage(report, viewer) && !(viewer.id === report.reporterId && ["PENDING", "CLARIFICATION"].includes(report.status))) throw new ReportError(403, "Anda tidak dapat mengunggah bukti untuk laporan ini.");
     if (["RESOLVED", "REJECTED"].includes(report.status)) throw new ReportError(409, "Laporan sudah ditutup.");
     if (!storageConfigured) throw new ReportError(503, "Penyimpanan bukti belum tersedia.");
     next();
