@@ -12,6 +12,7 @@ import { readImage } from "./storage.js";
 import swaggerUi from "swagger-ui-express";
 import { openapiDocument } from "./openapi.js";
 import { adminRouter } from "./modules/admin/routes.js";
+import { categoryJson } from "./modules/admin/category-image.js";
 import { reportRouter } from "./modules/reports/routes.js";
 
 const reportInput = z.object({
@@ -166,7 +167,16 @@ export function createApp() {
   }
 
   app.get("/api/public/categories", async (_request, response) => {
-    response.json({ data: await prisma.reportCategory.findMany({ orderBy: { createdAt: "asc" }, select: { id: true, name: true } }) });
+    response.json({ data: (await prisma.reportCategory.findMany({ orderBy: { createdAt: "asc" } })).map(categoryJson) });
+  });
+  app.get("/api/public/categories/:id/image", async (request, response) => {
+    const category = await prisma.reportCategory.findUnique({ where: { id: String(request.params.id) } });
+    if (!category?.imageKey) return void response.status(404).json({ error: "Foto kategori tidak ditemukan." });
+    const file = await readImage(category.imageKey);
+    response.setHeader("Content-Type", file.contentType);
+    response.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    response.setHeader("Cache-Control", "public, max-age=300");
+    response.send(file.body);
   });
 
   app.get("/api/public/map", async (_request, response) => {
@@ -201,7 +211,7 @@ export function createApp() {
     ]);
     const adminOverview = role === "admin"
       ? await (async () => {
-        const [users, allUnits, auditLogs, reportsTotal, assignedPolice, categoryRows, statusRows, unitRows, categoriesTotal] = await Promise.all([
+        const [users, allUnits, auditLogs, reportsTotal, assignedPolice, categoryRows, statusRows, unitRows, categoriesTotal, trend] = await Promise.all([
           prisma.user.count(),
           prisma.policeUnit.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, district: true, address: true, isPublished: true, _count: { select: { reports: true, staff: { where: { role: "POLISI" } } } } } }),
           prisma.auditLog.count(),
@@ -211,6 +221,10 @@ export function createApp() {
           prisma.incidentReport.groupBy({ by: ["status"], _count: { _all: true } }),
           prisma.incidentReport.groupBy({ by: ["policeUnitId"], _count: { _all: true } }),
           prisma.reportCategory.count(),
+          prisma.$queryRaw<Array<{ date: string; count: number }>>`
+            WITH days AS (SELECT generate_series((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date - 29, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date, '1 day'::interval)::date AS day),
+            counts AS (SELECT ("createdAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Jakarta')::date AS day, COUNT(*)::int AS count FROM "IncidentReport" WHERE "createdAt" >= CURRENT_TIMESTAMP - INTERVAL '31 days' GROUP BY 1)
+            SELECT to_char(days.day, 'YYYY-MM-DD') AS date, COALESCE(counts.count, 0)::int AS count FROM days LEFT JOIN counts USING(day) ORDER BY days.day`,
         ]);
         const unitsById = new Map(allUnits.map((unit) => [unit.id, unit]));
         return {
@@ -222,6 +236,7 @@ export function createApp() {
           reports: reportsTotal,
           assignedPolice,
           auditLogs,
+          trend,
           categories: categoryRows.map((row) => ({ name: row.category, count: row._count._all })),
           statuses: statusRows.map((row) => ({ status: row.status, count: row._count._all })),
           unitsByReport: unitRows.map((row) => ({ name: unitsById.get(row.policeUnitId || "")?.name || "Belum dirutekan", count: row._count._all })).sort((a, b) => b.count - a.count),

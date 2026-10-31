@@ -3,6 +3,9 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { hashPassword, verifyPassword } from "better-auth/crypto";
 import bcrypt from "bcryptjs";
 import { prisma } from "./prisma.js";
+import { emailOTP } from "better-auth/plugins";
+import { APIError, createAuthMiddleware } from "better-auth/api";
+import { emailOtpEnabled, mailConfigured, sendRegistrationOtp } from "./email.js";
 
 const production = process.env.NODE_ENV === "production";
 const apiUrl = process.env.BETTER_AUTH_URL || (production ? "https://api.gardajakarta.my.id" : "http://localhost:4000");
@@ -21,6 +24,21 @@ export const auth = betterAuth({
   basePath: "/api/auth",
   secret: process.env.BETTER_AUTH_SECRET,
   trustedOrigins: origins,
+  disabledPaths: ["/sign-in/email-otp"],
+  plugins: [emailOTP({
+    otpLength: 6, expiresIn: 300, allowedAttempts: 5, storeOTP: "hashed",
+    disableSignUp: true, sendVerificationOnSignUp: emailOtpEnabled,
+    overrideDefaultEmailVerification: true,
+    rateLimit: { window: 60, max: 5 },
+    async sendVerificationOTP({ email, otp, type }) {
+      if (!emailOtpEnabled || !mailConfigured || type !== "email-verification") throw new APIError("SERVICE_UNAVAILABLE", { message: "Pengiriman kode belum tersedia." });
+      try { await sendRegistrationOtp(email, otp); }
+      catch { throw new APIError("SERVICE_UNAVAILABLE", { message: "Kode belum terkirim. Coba lagi sebentar." }); }
+    },
+  })],
+  hooks: { before: createAuthMiddleware(async (ctx) => {
+    if (ctx.path === "/sign-up/email" && emailOtpEnabled && !mailConfigured) throw new APIError("SERVICE_UNAVAILABLE", { message: "Pendaftaran sedang disiapkan. Coba lagi nanti." });
+  }) },
   user: {
     additionalFields: {
       role: {
@@ -35,7 +53,8 @@ export const auth = betterAuth({
     enabled: true,
     minPasswordLength: 8,
     maxPasswordLength: 128,
-    autoSignIn: true,
+    autoSignIn: !emailOtpEnabled,
+    requireEmailVerification: emailOtpEnabled,
     password: {
       hash: hashPassword,
       // Keep passwords migrated from the original bcrypt implementation valid.
@@ -44,6 +63,7 @@ export const auth = betterAuth({
         : verifyPassword({ hash, password }),
     },
   },
+  emailVerification: { sendOnSignUp: emailOtpEnabled, sendOnSignIn: emailOtpEnabled, autoSignInAfterVerification: false },
   socialProviders: {
     google: {
       clientId: process.env.GOOGLE_CLIENT_ID || "",
@@ -80,6 +100,7 @@ export const auth = betterAuth({
       "/sign-in/email": { window: 900, max: 20 },
       "/sign-up/email": { window: 900, max: 20 },
       "/sign-in/social": { window: 900, max: 20 },
+      "/email-otp/send-verification-otp": { window: 60, max: 1 },
     },
   },
 });

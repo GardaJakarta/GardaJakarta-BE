@@ -4,12 +4,31 @@ import { hashPassword } from "better-auth/crypto";
 import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import multer from "multer";
+import sharp from "sharp";
+import { storageConfigured, uploadImage } from "../../storage.js";
+import { categoryJson } from "./category-image.js";
 import { auth } from "../../auth.js";
 import { prisma } from "../../prisma.js";
 import { transitions } from "../reports/policy.js";
 
 class AdminError extends Error {
   constructor(public status: number, message: string) { super(message); }
+}
+const categoryUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 1, fieldSize: 1024 } });
+async function saveCategoryImage(file?: Express.Multer.File) {
+  if (!file) return undefined;
+  let body: Buffer;
+  try {
+    const image = sharp(file.buffer, { limitInputPixels: 25_000_000 });
+    const meta = await image.metadata();
+    if (!["jpeg", "png", "webp"].includes(meta.format || "") || (meta.pages ?? 1) > 1) throw new Error("Invalid image");
+    body = await image.rotate().resize({ width: 768, height: 768, fit: "inside", withoutEnlargement: true }).webp({ quality: 90 }).toBuffer();
+  } catch { throw new AdminError(400, "Foto tidak valid. Gunakan JPG, PNG, atau WebP maksimal 5 MB."); }
+  if (!storageConfigured) throw new AdminError(503, "Penyimpanan foto belum tersedia. Coba lagi nanti.");
+  const key = `category-images/${randomUUID()}.webp`;
+  await uploadImage({ key, body, contentType: "image/webp" });
+  return key;
 }
 const idInput = z.string().min(1).max(128);
 const listInput = z.object({
@@ -208,32 +227,36 @@ export function adminRouter(origins: string[]) {
       prisma.reportCategory.count({ where }), prisma.incidentReport.groupBy({ by: ["category"], _count: { _all: true } }),
     ]);
     const countMap = new Map(counts.map((row) => [row.category, row._count._all]));
-    res.json({ data: { items: items.map((item) => ({ ...item, reports: countMap.get(item.name) || 0 })), total, page, hasMore: page * limit < total } });
+    res.json({ data: { items: items.map((item) => ({ ...categoryJson(item), reports: countMap.get(item.name) || 0 })), total, page, hasMore: page * limit < total } });
   });
   router.get("/categories/:id", async (req, res) => {
     const item = await prisma.reportCategory.findUnique({ where: { id: idInput.parse(req.params.id) } });
     if (!item) throw new AdminError(404, "Kategori tidak ditemukan.");
-    res.json({ data: { ...item, reports: await prisma.incidentReport.count({ where: { category: item.name } }) } });
+    res.json({ data: { ...categoryJson(item), reports: await prisma.incidentReport.count({ where: { category: item.name } }) } });
   });
-  router.post("/categories", async (req, res) => {
+  router.post("/categories", categoryUpload.single("image"), async (req, res) => {
     const input = categoryInput.parse(req.body);
+    if (!req.file) throw new AdminError(400, "Foto kategori wajib diunggah.");
+    const imageKey = await saveCategoryImage(req.file);
     const item = await prisma.$transaction(async (tx) => {
-      const category = await tx.reportCategory.create({ data: { id: randomUUID(), ...input } });
+      const category = await tx.reportCategory.create({ data: { id: randomUUID(), ...input, imageKey } });
       await audit(tx, res.locals.adminId, "ADMIN_CATEGORY_CREATED", category.id, "Kategori dibuat.");
       return category;
     });
-    res.status(201).json({ data: { ...item, reports: 0 } });
+    res.status(201).json({ data: { ...categoryJson(item), reports: 0 } });
   });
-  router.patch("/categories/:id", async (req, res) => {
+  router.patch("/categories/:id", categoryUpload.single("image"), async (req, res) => {
     const id = idInput.parse(req.params.id), input = categoryInput.parse(req.body);
+    if (!await prisma.reportCategory.findUnique({ where: { id } })) throw new AdminError(404, "Kategori tidak ditemukan.");
+    const imageKey = await saveCategoryImage(req.file);
     const item = await prisma.$transaction(async (tx) => {
       const old = await tx.reportCategory.findUnique({ where: { id } });
       if (!old) throw new AdminError(404, "Kategori tidak ditemukan.");
-      const category = await tx.reportCategory.update({ where: { id }, data: input });
+      const category = await tx.reportCategory.update({ where: { id }, data: { ...input, ...(imageKey ? { imageKey } : {}) } });
       await tx.incidentReport.updateMany({ where: { category: old.name }, data: { category: input.name } });
       const reports = await tx.incidentReport.count({ where: { category: input.name } });
       await audit(tx, res.locals.adminId, "ADMIN_CATEGORY_UPDATED", id, "Nama kategori dan laporan terkait diperbarui.");
-      return { ...category, reports };
+      return { ...categoryJson(category), reports };
     }, serializable);
     res.json({ data: item });
   });
@@ -310,6 +333,7 @@ export function adminRouter(origins: string[]) {
     res.json({ data: { id } });
   });
   const errorHandler: ErrorRequestHandler = (error, _req, res, next) => {
+    if (error instanceof multer.MulterError) { res.status(400).json({ error: "Unggah satu foto maksimal 5 MB." }); return; }
     if (error instanceof AdminError) { res.status(error.status).json({ error: error.message }); return; }
     if (error instanceof z.ZodError) { res.status(400).json({ error: "Data tidak valid. Periksa kolom wajib dan batas input.", fields: error.issues.map((issue) => issue.path.join(".")) }); return; }
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
