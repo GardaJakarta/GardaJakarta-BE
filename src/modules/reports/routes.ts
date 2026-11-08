@@ -62,7 +62,7 @@ export function reportRouter(origins: string[]) {
       voteCount: votes.filter((item) => item.direction === "UP").length,
       upVoteCount: votes.filter((item) => item.direction === "UP").length,
       downVoteCount: votes.filter((item) => item.direction === "DOWN").length,
-      communitySignal: votes.length >= 5 && votes.filter((item) => item.direction === "UP").length / votes.length >= 0.8 ? "SUPPORTED" : votes.length >= 5 && votes.filter((item) => item.direction === "DOWN").length / votes.length >= 0.8 ? "QUESTIONED" : "NEUTRAL",
+      communitySignal: votes.length >= 10 && votes.filter((item) => item.direction === "UP").length / votes.length >= 0.8 ? "SUPPORTED" : votes.length >= 10 && votes.filter((item) => item.direction === "DOWN").length / votes.length >= 0.8 ? "QUESTIONED" : "NEUTRAL",
       hasVoted: Boolean(vote), voteDirection: vote?.direction ?? null, comments: comments.map((item) => ({ ...item, evidence: item.evidence.map(({ id }) => ({ id, url: `/api/reports/${report.id}/evidence/${id}` })) })), page,
       hasMore: page * 20 < Math.max(activityCount, commentCount),
       canParticipate: viewer?.role === "WARGA" && report.status !== "REJECTED",
