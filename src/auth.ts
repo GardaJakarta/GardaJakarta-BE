@@ -36,9 +36,17 @@ export const auth = betterAuth({
       catch { throw new APIError("SERVICE_UNAVAILABLE", { message: "Kode belum terkirim. Coba lagi sebentar." }); }
     },
   })],
-  hooks: { before: createAuthMiddleware(async (ctx) => {
-    if (ctx.path === "/sign-up/email" && emailOtpEnabled && !mailConfigured) throw new APIError("SERVICE_UNAVAILABLE", { message: "Pendaftaran sedang disiapkan. Coba lagi nanti." });
-  }) },
+  hooks: {
+    before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path === "/sign-up/email" && emailOtpEnabled && !mailConfigured) throw new APIError("SERVICE_UNAVAILABLE", { message: "Pendaftaran sedang disiapkan. Coba lagi nanti." });
+    }),
+    after: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== "/sign-in/email" && ctx.path !== "/callback/google") return;
+      const session = ctx.context.newSession;
+      if (!session?.user?.id) return;
+      await prisma.user.update({ where: { id: session.user.id }, data: { lastLoginAt: new Date() } });
+    }),
+  },
   user: {
     additionalFields: {
       role: {

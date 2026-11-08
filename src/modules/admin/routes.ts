@@ -64,7 +64,7 @@ const reportUpdate = reportInput.extend({
   evidenceIds: z.array(idInput).max(3).default([]),
 });
 const userSelect = {
-  id: true, name: true, email: true, role: true, createdAt: true, updatedAt: true, policeUnitId: true,
+  id: true, name: true, email: true, role: true, createdAt: true, updatedAt: true, lastLoginAt: true, policeUnitId: true,
   policeUnit: { select: { id: true, name: true } },
 } as const;
 const reportInclude = {
