@@ -27,7 +27,17 @@ function serializePoliceUnit(unit: { id: string; name: string; district: string;
   return { ...unit, latitude: Number(unit.latitude), longitude: Number(unit.longitude) };
 }
 
-function serializeReport(report: { id: string; ticketNumber: string; category: string; description: string; severity: string; status: string; latitude: unknown; longitude: unknown; createdAt: Date; updatedAt: Date; policeUnit?: { name: string; district: string } | null; clarificationPrompt?: string | null; clarificationResponse?: string | null; clarificationRequestedAt?: Date | null; clarificationRespondedAt?: Date | null; activities?: Array<{ id: string; type: string; message: string; createdAt: Date }>; _count?: { votes: number; comments: number }; votes?: Array<{ voterId: string }> }) {
+function communitySignal(upVotes: number, downVotes: number) {
+  const total = upVotes + downVotes;
+  if (total < 5) return "NEUTRAL" as const;
+  if (upVotes / total >= 0.8) return "SUPPORTED" as const;
+  if (downVotes / total >= 0.8) return "QUESTIONED" as const;
+  return "NEUTRAL" as const;
+}
+
+function serializeReport(report: { id: string; ticketNumber: string; category: string; description: string; severity: string; status: string; latitude: unknown; longitude: unknown; createdAt: Date; updatedAt: Date; policeUnit?: { name: string; district: string } | null; clarificationPrompt?: string | null; clarificationResponse?: string | null; clarificationRequestedAt?: Date | null; clarificationRespondedAt?: Date | null; activities?: Array<{ id: string; type: string; message: string; createdAt: Date }>; _count?: { votes: number; comments: number }; votes?: Array<{ voterId: string; direction?: "UP" | "DOWN" }> }) {
+  const upVotes = report.votes?.filter((vote) => vote.direction !== "DOWN").length ?? report._count?.votes ?? 0;
+  const downVotes = report.votes?.filter((vote) => vote.direction === "DOWN").length ?? 0;
   return {
     id: report.id, ticketNumber: report.ticketNumber, category: report.category,
     description: report.description, status: report.status, severity: report.severity,
@@ -40,9 +50,14 @@ function serializeReport(report: { id: string; ticketNumber: string; category: s
     clarificationRequestedAt: report.clarificationRequestedAt ?? null,
     clarificationRespondedAt: report.clarificationRespondedAt ?? null,
     activities: report.activities?.map((activity) => ({ id: activity.id, type: activity.type, message: activity.message, createdAt: activity.createdAt })) ?? [],
-    voteCount: report._count?.votes ?? 0,
+    voteCount: upVotes,
+    upVoteCount: upVotes,
+    downVoteCount: downVotes,
+    communitySignal: communitySignal(upVotes, downVotes),
     commentCount: report._count?.comments ?? 0,
-    hasVoted: Boolean(report.votes?.length),
+    // Public/dashboard serializers carry aggregate votes; personal vote state
+    // is resolved by the interactions endpoint for the current viewer.
+    hasVoted: false,
   };
 }
 
@@ -50,6 +65,7 @@ const reportInteractionInclude = {
   policeUnit: { select: { name: true, district: true } },
   activities: { orderBy: { createdAt: "asc" as const }, select: { id: true, type: true, message: true, createdAt: true } },
   _count: { select: { votes: true, comments: true } },
+  votes: { select: { voterId: true, direction: true } },
 } as const;
 
 function publicReport(report: Parameters<typeof serializeReport>[0]) {
@@ -65,6 +81,10 @@ function publicReport(report: Parameters<typeof serializeReport>[0]) {
     createdAt: serialized.createdAt,
     updatedAt: serialized.updatedAt,
     policeUnit: serialized.policeUnit,
+    voteCount: serialized.voteCount,
+    upVoteCount: serialized.upVoteCount,
+    downVoteCount: serialized.downVoteCount,
+    communitySignal: serialized.communitySignal,
   };
 }
 
@@ -186,7 +206,7 @@ export function createApp() {
         where: { status: { in: ["PENDING", "VERIFIED", "IN_PROGRESS", "CLARIFICATION", "RESOLVED"] } },
         orderBy: { updatedAt: "desc" },
         take: 200,
-        include: { policeUnit: { select: { name: true, district: true } } },
+        include: { policeUnit: { select: { name: true, district: true } }, votes: { select: { voterId: true, direction: true } } },
       }),
     ]);
     response.json({ data: { units: units.map(serializePoliceUnit), reports: reports.map(publicReport), updatedAt: new Date().toISOString() } });

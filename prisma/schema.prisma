@@ -29,6 +29,11 @@ enum ReportStatus {
   REJECTED
 }
 
+enum ReportVoteDirection {
+  UP
+  DOWN
+}
+
 model User {
   id            String    @id
   name          String
@@ -145,11 +150,13 @@ model ReportVote {
   id        String         @id @default(cuid())
   reportId  String
   voterId   String
+  direction ReportVoteDirection @default(UP)
   report    IncidentReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
   voter     User           @relation(fields: [voterId], references: [id], onDelete: Cascade)
   createdAt DateTime       @default(now())
 
   @@unique([reportId, voterId])
+  @@index([reportId, direction])
   @@index([reportId])
   @@index([voterId])
 }
