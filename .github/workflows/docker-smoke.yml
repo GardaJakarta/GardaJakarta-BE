@@ -1,0 +1,88 @@
+name: Docker smoke
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docker/**"
+      - "docker-compose.yml"
+      - ".dockerignore"
+      - ".env.docker.example"
+      - ".github/workflows/docker-smoke.yml"
+  pull_request:
+    paths:
+      - "docker/**"
+      - "docker-compose.yml"
+      - ".dockerignore"
+      - ".env.docker.example"
+      - ".github/workflows/docker-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: GardaJakarta-BE
+      - uses: actions/checkout@v4
+        with:
+          repository: GardaJakarta/GardaJakarta-FE
+          ref: main
+          path: GardaJakarta-FE
+          persist-credentials: false
+      - name: Prepare isolated local environment
+        working-directory: GardaJakarta-BE
+        run: |
+          cp .env.docker.example .env.docker
+          secret=$(openssl rand -hex 32)
+          echo "::add-mask::$secret"
+          sed -i "s/^BETTER_AUTH_SECRET=.*/BETTER_AUTH_SECRET=$secret/" .env.docker
+      - name: Validate and build stack
+        working-directory: GardaJakarta-BE
+        run: |
+          docker compose --env-file .env.docker --profile app config --quiet
+          docker compose --env-file .env.docker --profile app up --build -d --wait --wait-timeout 180
+      - name: Seed local database
+        working-directory: GardaJakarta-BE
+        run: docker compose --env-file .env.docker exec -T api npm run db:seed
+      - name: Verify health, reports, browser routes and registration
+        working-directory: GardaJakarta-BE
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { randomUUID } from 'node:crypto';
+          const api = 'http://localhost:4000/api';
+          const health = await fetch(api + '/health');
+          assert.equal(health.status, 200);
+          assert.equal((await health.json()).ok, true);
+          const response = await fetch(api + '/public/map');
+          assert.equal(response.status, 200);
+          const { data } = await response.json();
+          assert.equal(data.units.length, 10);
+          assert.ok(data.reports.length >= 28);
+          for (const path of ['/login', '/map', '/dashboard']) {
+            const frontend = await fetch('http://localhost:4173' + path);
+            assert.equal(frontend.status, 200);
+            assert.match(await frontend.text(), /<div id="root">/);
+          }
+          const signup = await fetch(api + '/auth/sign-up/email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:4173' },
+            body: JSON.stringify({ name: 'Warga Jakarta', email: randomUUID() + '@example.invalid', password: randomUUID() })
+          });
+          assert.equal(signup.status, 200);
+          assert.ok(signup.headers.getSetCookie().some(value => value.includes('garda.session_token=')));
+          console.log('Health, seeded reports, SPA routes and cookie registration passed.');
+          JS
+      - name: Diagnostics
+        if: failure()
+        working-directory: GardaJakarta-BE
+        run: docker compose --env-file .env.docker logs --tail=80
+      - name: Stop ephemeral stack
+        if: always()
+        working-directory: GardaJakarta-BE
+        run: docker compose --env-file .env.docker --profile app down -v
