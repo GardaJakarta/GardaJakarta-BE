@@ -14,6 +14,8 @@ import { openapiDocument } from "./openapi.js";
 import { adminRouter } from "./modules/admin/routes.js";
 import { categoryJson } from "./modules/admin/category-image.js";
 import { reportRouter } from "./modules/reports/routes.js";
+import { communitySummary } from "./modules/reports/community.js";
+import { withVoteSummaries } from "./modules/reports/vote-summary.js";
 
 const reportInput = z.object({
   category: z.string().trim().min(2).max(120),
@@ -27,17 +29,7 @@ function serializePoliceUnit(unit: { id: string; name: string; district: string;
   return { ...unit, latitude: Number(unit.latitude), longitude: Number(unit.longitude) };
 }
 
-function communitySignal(upVotes: number, downVotes: number) {
-  const total = upVotes + downVotes;
-  if (total < 5) return "NEUTRAL" as const;
-  if (upVotes / total >= 0.8) return "SUPPORTED" as const;
-  if (downVotes / total >= 0.8) return "QUESTIONED" as const;
-  return "NEUTRAL" as const;
-}
-
-function serializeReport(report: { id: string; ticketNumber: string; category: string; description: string; severity: string; status: string; latitude: unknown; longitude: unknown; createdAt: Date; updatedAt: Date; policeUnit?: { name: string; district: string } | null; clarificationPrompt?: string | null; clarificationResponse?: string | null; clarificationRequestedAt?: Date | null; clarificationRespondedAt?: Date | null; activities?: Array<{ id: string; type: string; message: string; createdAt: Date }>; _count?: { votes: number; comments: number }; votes?: Array<{ voterId: string; direction?: "UP" | "DOWN" }> }) {
-  const upVotes = report.votes?.filter((vote) => vote.direction !== "DOWN").length ?? report._count?.votes ?? 0;
-  const downVotes = report.votes?.filter((vote) => vote.direction === "DOWN").length ?? 0;
+function serializeReport(report: { id: string; ticketNumber: string; category: string; description: string; severity: string; status: string; latitude: unknown; longitude: unknown; createdAt: Date; updatedAt: Date; policeUnit?: { name: string; district: string } | null; clarificationPrompt?: string | null; clarificationResponse?: string | null; clarificationRequestedAt?: Date | null; clarificationRespondedAt?: Date | null; activities?: Array<{ id: string; type: string; message: string; createdAt: Date }>; _count?: { votes: number; comments: number }; community?: ReturnType<typeof communitySummary> }) {
   return {
     id: report.id, ticketNumber: report.ticketNumber, category: report.category,
     description: report.description, status: report.status, severity: report.severity,
@@ -50,14 +42,8 @@ function serializeReport(report: { id: string; ticketNumber: string; category: s
     clarificationRequestedAt: report.clarificationRequestedAt ?? null,
     clarificationRespondedAt: report.clarificationRespondedAt ?? null,
     activities: report.activities?.map((activity) => ({ id: activity.id, type: activity.type, message: activity.message, createdAt: activity.createdAt })) ?? [],
-    voteCount: upVotes,
-    upVoteCount: upVotes,
-    downVoteCount: downVotes,
-    communitySignal: communitySignal(upVotes, downVotes),
+    ...report.community ?? communitySummary(0, 0),
     commentCount: report._count?.comments ?? 0,
-    // Public/dashboard serializers carry aggregate votes; personal vote state
-    // is resolved by the interactions endpoint for the current viewer.
-    hasVoted: false,
   };
 }
 
@@ -65,7 +51,6 @@ const reportInteractionInclude = {
   policeUnit: { select: { name: true, district: true } },
   activities: { orderBy: { createdAt: "asc" as const }, select: { id: true, type: true, message: true, createdAt: true } },
   _count: { select: { votes: true, comments: true } },
-  votes: { select: { voterId: true, direction: true } },
 } as const;
 
 function publicReport(report: Parameters<typeof serializeReport>[0]) {
@@ -206,10 +191,10 @@ export function createApp() {
         where: { status: { in: ["PENDING", "VERIFIED", "IN_PROGRESS", "CLARIFICATION", "RESOLVED"] } },
         orderBy: { updatedAt: "desc" },
         take: 200,
-        include: { policeUnit: { select: { name: true, district: true } }, votes: { select: { voterId: true, direction: true } } },
+        include: { policeUnit: { select: { name: true, district: true } } },
       }),
     ]);
-    response.json({ data: { units: units.map(serializePoliceUnit), reports: reports.map(publicReport), updatedAt: new Date().toISOString() } });
+    response.json({ data: { units: units.map(serializePoliceUnit), reports: (await withVoteSummaries(reports)).map(publicReport), updatedAt: new Date().toISOString() } });
   });
 
   app.get("/api/dashboard", requireSession, async (_request, response) => {
@@ -268,7 +253,7 @@ export function createApp() {
       id: activity.id, title: activity.type === "SUBMITTED" ? "Laporan masuk" : "Pembaruan penanganan",
       body: report.ticketNumber + " - " + activity.message, createdAt: activity.createdAt.getTime(),
     }))).sort((a, b) => b.createdAt - a.createdAt).slice(0, 20);
-    response.json({ data: { role, notifications, reports: reports.map(serializeReport), stats: { total, pending, inProgress, resolved }, units: units.map(serializePoliceUnit), ...(adminOverview ? { adminOverview } : {}) } });
+    response.json({ data: { role, notifications, reports: (await withVoteSummaries(reports)).map(serializeReport), stats: { total, pending, inProgress, resolved }, units: units.map(serializePoliceUnit), ...(adminOverview ? { adminOverview } : {}) } });
   });
 
   app.use("/api/admin", adminRouter(origins));
@@ -291,7 +276,7 @@ export function createApp() {
     };
     const rows = await prisma.incidentReport.findMany({ where, orderBy: [{ updatedAt: "desc" }, { id: "desc" }], skip: (page - 1) * limit, take: limit + 1, include: reportInteractionInclude });
     const hasMore = rows.length > limit;
-    response.json({ data: { reports: rows.slice(0, limit).map(serializeReport), page, limit, hasMore } });
+    response.json({ data: { reports: (await withVoteSummaries(rows.slice(0, limit))).map(serializeReport), page, limit, hasMore } });
   });
 
   app.post("/api/reports", requireRole("warga"), async (request, response) => {
@@ -314,7 +299,7 @@ export function createApp() {
   app.get("/api/reports/mine", requireRole("warga"), async (_request, response) => {
     const session = response.locals.session as AuthSession;
     const reports = await prisma.incidentReport.findMany({ where: { reporterId: session.user.id }, orderBy: { createdAt: "desc" }, include: reportInteractionInclude });
-    response.json({ data: reports.map(serializeReport) });
+    response.json({ data: (await withVoteSummaries(reports)).map(serializeReport) });
   });
 
   app.use("/api", reportRouter(origins));

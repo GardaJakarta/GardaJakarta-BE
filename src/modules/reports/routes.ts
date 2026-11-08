@@ -5,6 +5,7 @@ import multer from "multer";
 import sharp from "sharp";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { getVoteSummary } from "./vote-summary.js";
 import { auth } from "../../auth.js";
 import { prisma } from "../../prisma.js";
 import { readImage, uploadImage, storageConfigured } from "../../storage.js";
@@ -49,21 +50,16 @@ export function reportRouter(origins: string[]) {
     if (!pageResult.success) throw new ReportError(400, "Halaman tidak valid.");
     const page = pageResult.data;
     const privateAccess = canReadPrivate(report, viewer);
-    const [activities, comments, votes, vote, activityCount, commentCount] = await Promise.all([
+    const [activities, comments, community, activityCount, commentCount] = await Promise.all([
       prisma.reportActivity.findMany({ where: { reportId: report.id }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: (page - 1) * 20, take: 20, include: { evidence: { select: { id: true } } } }),
       prisma.reportComment.findMany({ where: { reportId: report.id }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: (page - 1) * 20, take: 20, select: { id: true, body: true, createdAt: true, evidence: { select: { id: true } } } }),
-      prisma.reportVote.findMany({ where: { reportId: report.id }, select: { voterId: true, direction: true } }),
-      viewer ? prisma.reportVote.findUnique({ where: { reportId_voterId: { reportId: report.id, voterId: viewer.id } }, select: { id: true, direction: true } }) : null,
+      getVoteSummary(report.id, viewer?.id),
       prisma.reportActivity.count({ where: { reportId: report.id } }),
       prisma.reportComment.count({ where: { reportId: report.id } }),
     ]);
     res.json({ data: {
       status: report.status,
-      voteCount: votes.filter((item) => item.direction === "UP").length,
-      upVoteCount: votes.filter((item) => item.direction === "UP").length,
-      downVoteCount: votes.filter((item) => item.direction === "DOWN").length,
-      communitySignal: votes.length >= 10 && votes.filter((item) => item.direction === "UP").length / votes.length >= 0.8 ? "SUPPORTED" : votes.length >= 10 && votes.filter((item) => item.direction === "DOWN").length / votes.length >= 0.8 ? "QUESTIONED" : "NEUTRAL",
-      hasVoted: Boolean(vote), voteDirection: vote?.direction ?? null, comments: comments.map((item) => ({ ...item, evidence: item.evidence.map(({ id }) => ({ id, url: `/api/reports/${report.id}/evidence/${id}` })) })), page,
+      ...community, comments: comments.map((item) => ({ ...item, evidence: item.evidence.map(({ id }) => ({ id, url: `/api/reports/${report.id}/evidence/${id}` })) })), page,
       hasMore: page * 20 < Math.max(activityCount, commentCount),
       canParticipate: viewer?.role === "WARGA" && report.status !== "REJECTED",
       canManage: canManage(report, viewer),
@@ -88,15 +84,13 @@ export function reportRouter(origins: string[]) {
     if (!parsedDirection.success) throw new ReportError(400, "Pilih dukung atau diragukan.");
     const direction = parsedDirection.data;
     await prisma.reportVote.upsert({ where: { reportId_voterId: { reportId: report.id, voterId: viewer.id } }, create: { reportId: report.id, voterId: viewer.id, direction }, update: { direction } });
-    const votes = await prisma.reportVote.findMany({ where: { reportId: report.id }, select: { direction: true } });
-    res.json({ data: { voteCount: votes.filter((vote) => vote.direction === "UP").length, upVoteCount: votes.filter((vote) => vote.direction === "UP").length, downVoteCount: votes.filter((vote) => vote.direction === "DOWN").length, hasVoted: true, voteDirection: direction } });
+    res.json({ data: await getVoteSummary(report.id, viewer.id) });
   });
   router.delete("/reports/:id/vote", async (req, res) => {
     const viewer = res.locals.viewer as Viewer;
     const report = await readable(String(req.params.id), viewer);
     await prisma.reportVote.deleteMany({ where: { reportId: report.id, voterId: viewer.id } });
-    const votes = await prisma.reportVote.findMany({ where: { reportId: report.id }, select: { direction: true } });
-    res.json({ data: { voteCount: votes.filter((vote) => vote.direction === "UP").length, upVoteCount: votes.filter((vote) => vote.direction === "UP").length, downVoteCount: votes.filter((vote) => vote.direction === "DOWN").length, hasVoted: false, voteDirection: null } });
+    res.json({ data: await getVoteSummary(report.id, viewer.id) });
   });
   router.post("/reports/:id/comments", async (req, res, next) => {
     const viewer = res.locals.viewer as Viewer;
