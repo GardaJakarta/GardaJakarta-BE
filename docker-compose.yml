@@ -20,6 +20,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     init: true
+    command: ["sh", "-c", "npm run db:setup:local && exec node dist/server.js"]
     env_file:
       - .env.docker
     environment:

@@ -123,7 +123,9 @@ docker compose --env-file .env.docker --profile app ps
 | Swagger | http://localhost:4000/api/docs |
 | PostgreSQL | Internal Compose: `db:5432`, tidak dibuka ke host |
 
-API menunggu database sehat, menjalankan migration, lalu memulai server. Frontend menunggu API sehat. Hasil build berjalan sebagai user `node` (non-root). Database dan credential seed lokal disimpan dalam named volume.
+API menunggu database sehat, menjalankan `db:setup:local`, lalu memulai server. Frontend menunggu API sehat. Hasil build berjalan sebagai user `node` (non-root). Database dan credential seed lokal disimpan dalam named volume.
+
+Riwayat migration memiliki timestamp foto komentar yang mendahului pembuatan tabel bukti. Pada database kosong, helper lokal menerapkan migration dependensi lebih dulu, kemudian migration komentar; nama, checksum, dan isi SQL asli dipertahankan. Pada startup berikutnya helper memakai `migrate deploy` biasa. Helper menolak mode production dan hostname database selain `localhost`, `127.0.0.1`, atau `db`; tidak mereset data.
 
 Untuk API + database saja, hilangkan `--profile app` dari perintah `up`; repository FE tidak diperlukan. Compose adalah lingkungan lokal HTTP, memakai `NODE_ENV=development` agar cookie tidak memakai domain production. Image tetap menjalankan JavaScript hasil build, tanpa hot reload.
 
@@ -173,12 +175,12 @@ EMAIL_OTP_ENABLED=false
 
 ```bash
 npm run prisma:generate
-npm run prisma:migrate:deploy
+npm run db:setup:local
 npm run db:seed
 npm run dev
 ```
 
-Untuk setup pertama, gunakan migration yang sudah tersimpan melalui `prisma:migrate:deploy`. `prisma:migrate:dev` digunakan saat pengembang mengubah schema, bukan untuk startup biasa. API berada di **http://localhost:4000**.
+Untuk setup pertama, gunakan `db:setup:local` agar dependensi migration diterapkan dengan benar. `prisma:migrate:dev` digunakan saat pengembang mengubah schema, bukan untuk startup biasa. Deployment production tetap memakai `prisma:migrate:deploy`. API berada di **http://localhost:4000**.
 
 ## Konfigurasi environment
 
