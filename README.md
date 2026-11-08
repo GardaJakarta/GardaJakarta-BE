@@ -18,7 +18,8 @@ Repository ini bersifat **publik**, branch utama `main` (diperiksa tanpa autenti
 | Peta publik | Laporan, kantor aktif, katalog kategori, tanpa identitas pelapor |
 | Laporan | Kategori, severity, kronologi, koordinat, status awal `PENDING` |
 | Routing | Kantor aktif terdekat berdasarkan jarak koordinat |
-| Interaksi | Komentar anonim, vote, foto bukti, klarifikasi, riwayat status |
+| Interaksi | Komentar anonim, validasi komunitas dukung/ragukan, foto bukti, klarifikasi, riwayat status |
+| Analitik peta | Heatmap kerawanan berbobot waktu, severity, status, dan sinyal komunitas; tetap indikatif |
 | Polisi | Akses penanganan dibatasi ke laporan yang ditugaskan kepada unitnya |
 | Admin | CRUD unit/kategori/pengguna/laporan, penugasan polisi, grafik 30 hari, audit |
 | Media | Bucket private, proxy API, validasi gambar dan optimasi kategori ke WebP |
@@ -63,7 +64,7 @@ flowchart LR
 | `ReportCategory` | Nama kategori dan key gambar |
 | `IncidentReport` | Laporan dan unit penanganan |
 | `ReportActivity` | Timeline perubahan dan catatan penanganan |
-| `ReportComment`, `ReportVote`, `ReportEvidence` | Diskusi, dukungan, dan media |
+| `ReportComment`, `ReportVote`, `ReportEvidence` | Diskusi, validasi `UP/DOWN`, dan media |
 | `AuditLog` | Jejak operasi administratif |
 
 Rujukan relasi lengkap: [schema.prisma](prisma/schema.prisma).
@@ -227,6 +228,7 @@ Ikuti [docs/email-otp.md](docs/email-otp.md). Pengiriman nyata memerlukan SMTP/A
 | GET | `/api/dashboard` | Data sesuai role |
 | POST | `/api/reports` | Submit laporan warga |
 | GET | `/api/reports/:id/interactions` | Timeline/interaksi sesuai akses |
+| POST/DELETE | `/api/reports/:id/vote` | Simpan atau batalkan validasi `UP/DOWN` |
 | POST | `/api/reports/:id/comments`, `/api/reports/:id/evidence` | Komentar/bukti |
 | PATCH | `/api/police/reports/:id/status` | Penanganan unit terkait |
 | GET/POST | `/api/admin/{units,categories,users,reports}` | Daftar/tambah, admin |
@@ -308,7 +310,8 @@ Status dokumentasi: **8 November 2026**, berdasarkan kode pada branch utama.
 | Seed lokal 28 laporan dan timeline | Tersedia | `prisma/seed.ts` |
 | OTP/S3 | Perlu konfigurasi eksternal | `docs/email-otp.md`, `src/storage.ts` |
 | Routing yurisdiksi polygon | Belum tersedia | Saat ini jarak kantor aktif terdekat |
-| Analitik dan monitoring lanjutan | Rencana | Memerlukan validasi data operasional |
+| Validasi komunitas dan heatmap indikatif | Tersedia | `src/modules/reports`, `src/components/GardaMap.tsx` |
+| Prediksi ML terkalibrasi dan monitoring lanjutan | Rencana | Memerlukan histori kejadian yang cukup dan validasi operasional |
 
 ## Deployment
 
